@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face { font-family: "Geist"; src: url("/fonts/geist-latin.woff2") format("woff2"); font-style: normal; font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("/fonts/geist-mono-latin.woff2") format("woff2"); font-style: normal; font-weight: 100 900; font-display: swap; }
+
+@layer base {
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; color: #171717; font-family: "Geist", "Inter", ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  button, input, textarea, select { font: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+  ::selection { background: #eae6ff; color: #171717; }
+  *:focus-visible { outline: 2px solid #6d5ae6; outline-offset: 3px; }
+  input, textarea, select { accent-color: #6d5ae6; }
+  input:disabled, textarea:disabled, select:disabled { opacity: .55; }
+}
+
+@layer components {
+  .btn { @apply inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 py-2 text-xs font-medium text-ink transition-colors hover:bg-hover disabled:opacity-45; }
+  .btn-primary { @apply btn border-ink bg-ink text-white hover:border-neutral-700 hover:bg-neutral-700; }
+  .btn-ghost { @apply btn border-transparent bg-transparent text-muted hover:text-ink; }
+  .icon-button { @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-hover hover:text-ink disabled:opacity-40; }
+  .field { @apply mt-2 block min-h-10 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/10; }
+  .eyebrow { @apply text-[11px] font-medium uppercase tracking-[.1em] text-muted; }
+  .settings-section { @apply space-y-5 border-b border-line pb-8; }
+  .settings-section h2 { @apply text-[15px] font-semibold tracking-tight; }
+  .settings-label { @apply block text-xs font-medium text-ink; }
+  .status-note { @apply rounded-md border border-line bg-panel px-3 py-2.5 text-xs leading-5 text-muted; }
+  .badge { @apply inline-flex items-center gap-1 rounded border border-line bg-panel px-1.5 py-0.5 text-[10px] font-medium text-muted; }
+  .settings-content { @apply min-w-0 text-sm; }
+  .settings-content form label { @apply text-xs font-medium; }
+  .settings-content input:not([type="checkbox"]):not([type="file"]), .settings-content textarea, .settings-content select { @apply mt-2 max-w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/10; }
+  .settings-content input[type="file"] { @apply mt-3 block w-full text-xs text-muted file:mr-3 file:rounded-md file:border-0 file:bg-hover file:px-3 file:py-2 file:text-xs file:font-medium file:text-ink; }
+  .settings-content table th { @apply border-b border-line bg-panel px-3 py-3 font-medium text-muted; }
+  .settings-content table td { @apply border-b border-line px-3 py-3; }
+  .markdown-body { overflow-wrap: anywhere; line-height: 1.75; }
+  .markdown-body > :first-child { margin-top: 0; }
+  .markdown-body > :last-child { margin-bottom: 0; }
+  .markdown-body p { margin: .4rem 0; }
+  .markdown-body ul { margin: .5rem 0; padding-left: 1.3rem; list-style: disc; }
+  .markdown-body ol { margin: .5rem 0; padding-left: 1.3rem; list-style: decimal; }
+  .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin: .85rem 0 .35rem; font-weight: 600; line-height: 1.4; }
+  .markdown-body h1 { font-size: 1.3em; }
+  .markdown-body h2 { font-size: 1.15em; }
+  .markdown-body code { @apply rounded border border-line bg-panel px-1 py-0.5 font-mono text-[.87em]; }
+  .markdown-body pre { @apply my-3 overflow-x-auto rounded-md border border-line bg-panel p-4 text-xs; }
+  .markdown-body pre code { padding: 0; border: 0; background: transparent; }
+  .markdown-body a { @apply text-accent underline decoration-accent/30 underline-offset-2; }
+  .markdown-body blockquote { @apply my-3 border-l-2 border-line pl-4 text-muted; }
+  .markdown-body table { @apply my-3 block max-w-full overflow-x-auto border-collapse text-xs; }
+  .markdown-body th, .markdown-body td { @apply border border-line px-3 py-2 text-left; }
+  .markdown-body th { @apply bg-panel font-medium; }
+  .markdown-body hr { @apply my-4 border-line; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; scroll-behavior: auto !important; transition: none !important; }
+}

@@ -1,0 +1,30 @@
+# Environment files and local credentials
+.env*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+client_secret*.json
+
+# Local databases, backups, and user data
+data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-*
+*.sqlite-*
+*.bak
+*.backup
+*.dump
+
+# Dependencies and generated build/test output
+node_modules/
+.next/
+.next-e2e/
+.npm-cache/
+playwright-report/
+test-results/
+coverage/
+*.tsbuildinfo

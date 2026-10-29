@@ -1,0 +1,59 @@
+{
+  "name": "agentroom",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development tsx --import ./src/server/environment.ts server.ts",
+    "build": "next build",
+    "start": "cross-env NODE_ENV=production tsx --import ./src/server/environment.ts server.ts",
+    "lint": "eslint src server.ts",
+    "test": "cross-env DATABASE_PATH=./data/agentroom-unit.sqlite vitest run",
+    "test:live": "cross-env RUN_LIVE_AI_TESTS=true DATABASE_PATH=:memory: vitest run tests/live-providers.test.ts",
+    "test:e2e": "node scripts/test-e2e.cjs",
+    "reset": "tsx scripts/reset-db.ts",
+    "migrate": "tsx scripts/migrate.ts",
+    "check:secrets": "tsx scripts/check-client-secrets.ts"
+  },
+  "dependencies": {
+    "@auth/drizzle-adapter": "^1.11.3",
+    "@google/genai": "^2.31.0",
+    "@monaco-editor/react": "^4.7.0",
+    "@next/env": "15.5.28",
+    "better-sqlite3": "^11.8.1",
+    "drizzle-orm": "^0.45.4",
+    "groq-sdk": "^1.6.0",
+    "nanoid": "^5.1.0",
+    "next": "^15.2.4",
+    "next-auth": "^5.0.0-beta.32",
+    "openai": "^7.45.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^9.0.3",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.0",
+    "sharp": "0.35.5",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.1",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "autoprefixer": "^10.4.21",
+    "cross-env": "^7.0.3",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^15.2.4",
+    "postcss": "8.5.32",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^5.0.5"
+  },
+  "overrides": {
+    "dompurify": "^3.4.17",
+    "postcss": "8.5.32"
+  }
+}

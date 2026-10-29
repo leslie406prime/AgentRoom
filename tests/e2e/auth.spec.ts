@@ -1,0 +1,33 @@
+import { expect, test } from "@playwright/test";
+import { io } from "socket.io-client";
+test("mock Google session persists, Microsoft is not offered, sign out disconnects sockets", async ({ page, context }) => {
+  const identity="g-"+Date.now().toString(36);
+  await page.goto("/sign-in?callbackUrl=/profile");
+  await expect(page.getByRole("button",{name:/Microsoft/})).toHaveCount(0);
+  await page.getByLabel("Mock identity").fill(identity);
+  await page.getByRole("button",{name:"Continue with Google"}).click();
+  await expect(page).toHaveURL("http://localhost:3000/profile",{timeout:60000});
+  const before=await (await page.request.get("/api/auth/session")).json();
+  expect(before.user.id).toBeTruthy();
+  await page.reload();
+  expect((await (await page.request.get("/api/auth/session")).json()).user.id).toBe(before.user.id);
+  await expect(page.getByText("mock-google",{exact:true})).toBeVisible();
+  await expect(page.getByRole("button",{name:/Microsoft/})).toHaveCount(0);
+  expect((await (await page.request.get("/api/auth/session")).json()).user.id).toBe(before.user.id);
+  const cookie=(await context.cookies()).map(c=>c.name+"="+c.value).join("; ");
+  const socket=io("http://localhost:3000",{extraHeaders:{Cookie:cookie},reconnection:false});
+  await new Promise<void>((resolve,reject)=>{socket.once("connect",()=>resolve());socket.once("connect_error",reject);});
+  const disconnected=new Promise<void>(resolve=>socket.once("disconnect",()=>resolve()));
+  const csrf=await (await page.request.get("/api/auth/csrf")).json();
+  await page.request.post("/api/auth/signout",{form:{csrfToken:csrf.csrfToken,callbackUrl:"/sign-in"}});
+  await disconnected;
+  expect((await (await page.request.get("/api/auth/session")).json())?.user).toBeUndefined();
+  socket.close();
+});
+test("unauthenticated sockets are rejected and protected pages preserve destination", async ({ page }) => {
+  const socket=io("http://localhost:3000",{reconnection:false});
+  const message=await new Promise<string>(resolve=>socket.once("connect_error",e=>resolve(e.message)));
+  expect(message).toBe("Authentication required.");socket.close();
+  await page.goto("/profile");
+  await expect(page).toHaveURL(/sign-in.*callbackUrl/);
+});
