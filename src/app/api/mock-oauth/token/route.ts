@@ -3,6 +3,6 @@ import type { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 
-export function POST(request: NextRequest) {
-  return exchangeMockOAuth(request);
+export async function POST(request: NextRequest) {
+  return (await exchangeMockOAuth(request));
 }

@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     const jar = await cookies();
     const token = jar.get(sessionCookieName)?.value;
     if (!token) throw new HttpError(401, "Authentication required.");
-    jar.set("agentroom.link-intent", beginLink(token, provider), { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 300 });
+    jar.set("agentroom.link-intent", (await beginLink(token, provider)), { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 300 });
     return Response.json({ ok: true });
   } catch (error) { return apiError(error); }
 }
@@ -25,7 +25,7 @@ export async function DELETE(request: Request) {
     if (!session?.user?.id) throw new HttpError(401, "Authentication required.");
     const { provider, account } = await readInput(request, Input);
     if (!account) throw new HttpError(400, "Identity required.");
-    unlinkIdentity(session.user.id, provider, account);
+    (await unlinkIdentity(session.user.id, provider, account));
     return Response.json({ ok: true });
   } catch (error) { return apiError(error); }
 }

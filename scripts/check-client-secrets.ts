@@ -2,7 +2,7 @@ import { loadEnvConfig } from "@next/env";
 import fs from "node:fs";
 import path from "node:path";
 loadEnvConfig(process.cwd());
-const names=["GEMINI_API_KEY","GROQ_API_KEY","AUTH_SECRET","AUTH_GOOGLE_SECRET","OPENAI_API_KEY","WORKSPACE_CREDENTIAL_KEY"];
+const names=["GEMINI_API_KEY","GROQ_API_KEY","AUTH_SECRET","AUTH_GOOGLE_SECRET","OPENAI_API_KEY","WORKSPACE_CREDENTIAL_KEY","DATABASE_URL","DIRECT_DATABASE_URL"];
 const values=names.map(name=>({name,value:process.env[name]})).filter((item):item is {name:string;value:string}=>Boolean(item.value&&item.value.length>=8));
 values.push({name:"mock client secret",value:"agentroom-mock-secret"});
 const root=path.resolve(process.env.NEXT_DIST_DIR??".next","static");if(!fs.existsSync(root))throw new Error("Run npm run build first.");

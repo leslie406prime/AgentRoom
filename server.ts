@@ -5,8 +5,11 @@ import { createServer } from "node:http";
 import next from "next";
 import { Server } from "socket.io";
 import { registerSocketHandlers, startQueuedWorkers } from "./src/server/socket";
-import { recoverJobs } from "./src/server/queue";
+import { recoverJobs,drainWorkers } from "./src/server/queue";
+import { abortWorkers } from "./src/server/worker-leases";
+import { db } from "./src/server/db";
 import { assertMockOAuthEnvironment } from "./src/server/mock-oauth";
+import { initializeDatabase } from "./src/server/db";
 
 const dev = process.env.NODE_ENV !== "production";
 const app = next({ dev });
@@ -15,17 +18,15 @@ const port = Number(process.env.PORT ?? 3000);
 
 assertMockOAuthEnvironment();
 
-void app.prepare().then(() => {
-  recoverJobs();
+void initializeDatabase().then(()=>app.prepare()).then(async () => {
+  (await recoverJobs());
   const httpServer = createServer((req, res) => {
     if (dev && process.env.AGENTROOM_E2E_SERVER_MANAGED === "true" && req.url === "/__agentroom_test_shutdown" && req.method === "POST") {
       const expected = process.env.AGENTROOM_TEST_SHUTDOWN_TOKEN;
       if (!expected || req.headers["x-agentroom-test-shutdown"] !== expected || req.headers.origin !== new URL(process.env.AUTH_URL ?? "http://localhost:3000").origin) { res.writeHead(404); res.end(); return; }
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }); res.end('{"ok":true}');
       setImmediate(() => {
-        const forcedExit = setTimeout(() => process.exit(0), 5000); forcedExit.unref();
-        io.close(() => { void app.close().finally(() => process.exit(0)); });
-        httpServer.closeAllConnections();
+        void shutdown().catch(() => process.exit(1));
       });
       return;
     }
@@ -41,6 +42,19 @@ void app.prepare().then(() => {
     maxHttpBufferSize: 1e6,
   });
   registerSocketHandlers(io);
-  startQueuedWorkers(io);
+  let shuttingDown=false;
+  const shutdown=async()=>{
+    if(shuttingDown)return;shuttingDown=true;
+    const forced=setTimeout(()=>process.exit(1),30000);forced.unref();
+    console.info(JSON.stringify({level:"info",event:"server_draining"}));
+    httpServer.close();io.disconnectSockets(true);
+    await drainWorkers(25000);abortWorkers();
+    await new Promise(resolve=>setTimeout(resolve,100));
+    io.close();httpServer.closeAllConnections();await app.close();await db.close();
+    clearTimeout(forced);process.exit(0);
+  };
+  process.once("SIGTERM",()=>void shutdown().catch(()=>process.exit(1)));
+  process.once("SIGINT",()=>void shutdown().catch(()=>process.exit(1)));
+  (await startQueuedWorkers(io));
   httpServer.listen(port, process.env.AGENTROOM_E2E_SERVER_MANAGED === "true" ? "127.0.0.1" : "0.0.0.0", () => console.info(JSON.stringify({ level: "info", event: "server_listening", port, environmentFiles, providersConfigured: { gemini: Boolean(process.env.GEMINI_API_KEY?.trim()), groq: Boolean(process.env.GROQ_API_KEY?.trim()), openai: Boolean(process.env.OPENAI_API_KEY?.trim()) } })));
-});
+}).catch(()=>{console.error(JSON.stringify({level:"error",event:"server_startup_failed"}));process.exitCode=1;});

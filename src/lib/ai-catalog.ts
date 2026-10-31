@@ -2,7 +2,7 @@
 // Terminology: provider (who serves the API) / model (the underlying weights) /
 // agent (the workspace-facing assistant a person @mentions) / credential source (where the key lives).
 export type ProviderId = "gemini" | "groq" | "openai";
-export type AgentId = "muse" | "gemini" | "llama" | "agent";
+export type AgentId = "muse" | "gemini" | "groq" | "llama" | "agent";
 export type CatalogModel = { provider: Exclude<ProviderId, "openai">; id: string; label: string; family: "gemini" | "llama" | "other"; tier: "free" | "account-dependent"; localRpm: number; note?: string };
 
 export const providerInfo: Record<ProviderId, { label: string; envKey: string; paid: boolean }> = {
@@ -34,6 +34,7 @@ export const defaultModelKey = "gemini:gemini-3.5-flash-lite";
 export const agentInfo: Record<AgentId, { label: string; mention: string; blurb: string }> = {
   muse: { label: "Muse", mention: "@Muse", blurb: "Channel memory, summaries, decisions and action items" },
   gemini: { label: "Gemini", mention: "@Gemini", blurb: "Google Gemini" },
+  groq: { label: "Groq", mention: "@Groq", blurb: "Approved models hosted by Groq (inference provider)" },
   llama: { label: "Llama", mention: "@Llama", blurb: "Meta Llama on Groq" },
   agent: { label: "Room agent", mention: "@Agent", blurb: "Workspace default model" },
 };
@@ -52,8 +53,10 @@ export function modelLabel(key: string) {
   if (!parsed) return key;
   return `${providerInfo[parsed.provider].label} · ${catalogModel(key)?.label ?? parsed.id}`;
 }
-const mentionPattern = /^@(muse|gemini|llama|agent)\b[:,]?\s*/i;
+const mentionPattern = /^@(muse|gemini|groq|llama|agent)\b[:,]?\s*/i;
 export function parseMention(text: string): { agent: AgentId; prompt: string } | null {
   const match = mentionPattern.exec(text.trim());
   return match ? { agent: match[1].toLowerCase() as AgentId, prompt: text.trim().slice(match[0].length) } : null;
 }
+
+export function hasMultipleAgentMentions(text: string) { return (text.match(/@(muse|gemini|groq|llama|agent)\b/gi) ?? []).length > 1; }

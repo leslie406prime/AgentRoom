@@ -8,8 +8,8 @@ import { db } from "../src/server/db";
 import { createWorkspace,changeWorkspace,deleteWorkspace,getWorkspace } from "../src/server/workspace-repository";
 import { saveWorkspaceAvatar,readWorkspaceAvatar } from "../src/server/avatar-repository";
 it("rejects forged SVG, invalid images, oversized files and unauthorized avatar writes",async()=>{
- const user=randomUUID(),other=randomUUID();for(const id of [user,other])db.prepare('INSERT INTO "user"(id,created_at) VALUES (?,?)').run(id,Date.now());
- const workspace=createWorkspace(user,{name:"Avatar test"});
+ const user=randomUUID(),other=randomUUID();for(const id of [user,other])(await db.prepare('INSERT INTO "user"(id,created_at) VALUES (?,?)').run(id,Date.now()));
+ const workspace=(await createWorkspace(user,{name:"Avatar test"}));
  await expect(saveWorkspaceAvatar(user,workspace.id,Buffer.from('<svg onload="alert(1)"></svg>'))).rejects.toThrow();
  await expect(saveWorkspaceAvatar(user,workspace.id,Buffer.alloc(1048577))).rejects.toThrow();
  const png=await sharp({create:{width:2,height:2,channels:3,background:"red"}}).png().toBuffer();
@@ -17,6 +17,6 @@ it("rejects forged SVG, invalid images, oversized files and unauthorized avatar 
  await saveWorkspaceAvatar(user,workspace.id,png);
  expect((await sharp(await readWorkspaceAvatar(user,workspace.id)).metadata()).format).toBe("webp");
  await expect(readWorkspaceAvatar(other,workspace.id)).rejects.toThrow("Not found");
- const before=getWorkspace(user,workspace.id);await changeWorkspace(user,workspace.id,{name:before.name,avatar:"blue"});await expect(access(path.join(avatarRoot,before.avatar))).rejects.toThrow();
- await saveWorkspaceAvatar(user,workspace.id,png);const current=getWorkspace(user,workspace.id);await deleteWorkspace(user,workspace.id,current.name);await expect(access(path.join(avatarRoot,current.avatar))).rejects.toThrow();
+ const before=(await getWorkspace(user,workspace.id));await changeWorkspace(user,workspace.id,{name:before.name,avatar:"blue"});await expect(access(path.join(avatarRoot,before.avatar))).rejects.toThrow();
+ await saveWorkspaceAvatar(user,workspace.id,png);const current=(await getWorkspace(user,workspace.id));await deleteWorkspace(user,workspace.id,current.name);await expect(access(path.join(avatarRoot,current.avatar))).rejects.toThrow();
 });

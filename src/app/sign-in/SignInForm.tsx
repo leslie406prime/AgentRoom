@@ -34,7 +34,7 @@ export default function SignInForm({ callbackUrl, mockEnabled, authError }: { ca
             <input aria-label="Mock identity" value={identity} onChange={event => setIdentity(event.target.value)} maxLength={48} className="field" />
           </div>}
           <div className="mt-8 grid gap-3">
-            <button disabled={!ready} onClick={() => void begin(mockEnabled ? "mock-google" : "google")} className="btn min-h-12 justify-start px-4 text-sm"><Icon name="google" className="mr-5 h-[18px] w-[18px]" />Continue with Google</button>
+            <button disabled={!ready} onClick={async () => void (await begin(mockEnabled ? "mock-google" : "google"))} className="btn min-h-12 justify-start px-4 text-sm"><Icon name="google" className="mr-5 h-[18px] w-[18px]" />Continue with Google</button>
           </div>
           {authError && <p role="alert" className="mt-4 text-xs leading-5 text-danger">Sign in was refused. Please continue with the Google account you used before. A Google identity already used by another account cannot be connected.</p>}
           {error && <p role="alert" className="mt-4 text-xs text-danger">{error}</p>}

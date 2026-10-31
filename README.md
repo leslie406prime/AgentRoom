@@ -79,6 +79,12 @@ Provider guards coordinate calls across channels in one process, recheck shared 
 
 ## Validation
 
+In a channel, owners and admins can use **+** beside **Channels** to create and open a channel. Names are normalized to lowercase with spaces replaced by hyphens; duplicates are rejected within the workspace. Members can join existing channels but cannot create them.
+
+The single **AI agents** sidebar selects the same target as the composer dropdown. Muse is the channel-memory assistant; Gemini targets approved Google models; Groq targets approved models hosted by the Groq inference service; Llama targets approved Meta Llama models hosted by Groq; Room agent uses the workspace default. The provider/model and unavailable reason are shown beside each entry. Selection is remembered per user/workspace on this browser. Leading `@Muse`, `@Gemini`, `@Groq`, `@Llama` or `@Agent` selects one target; multiple recognized mentions are rejected with a request to choose one. To compare answers, select Muse and name the other models without multiple @mentions.
+
+Historical failed jobs are retained in the collapsed **Failed requests** section of the activity panel. Expand it to see the failure category and safe details or retry manually. A retry is a new request subject to current permissions and limits. There are no unlimited automatic retries.
+
 ```powershell
 npm test
 npx tsc --noEmit
@@ -86,6 +92,7 @@ npm run lint
 npm run build
 npm run check:secrets
 npm run test:e2e
+npm run test:ui
 npm run test:live
 npm run test:live:app
 npm run check:staged
@@ -93,11 +100,15 @@ npm run check:staged
 
 `npm test` mocks providers for routing, Muse context/artifacts, usage, allowlists, workspace isolation, FIFO, failure recovery, authentication and data migrations. `npm run test:e2e` runs Chromium against an isolated database and mock Google login, with all provider keys explicitly cleared. Install the browser with `npx playwright install chromium` if required; stop any server on port 3000 first.
 
+`npm run test:ui` tests sidebar channel creation and agent selection with two browsers, actual SDK adapters and mocked provider HTTP streams. Its opt-in Node preload requires a fresh isolated test database and mock OAuth; it is never imported by the application. Provider calls do not reach the internet, and this test is not live-generation evidence.
+
 Only the explicitly opted-in live test commands load local provider keys and send real requests. `npm run test:live` loads `.env.local` despite Vitest's test mode. Gemini probes the current default with one tiny response; Groq verifies Muse against a stored channel fact through the real queue in an in-memory workspace, including streaming, persistence and usage. Missing keys cause skips. Passing mocks or model listing alone does not establish live generation. Live tests do not validate real Google OAuth. `check:secrets` scans the production browser bundle; `check:staged` scans staged paths and content before a commit without printing secret values.
 
 `npm run test:live:app` is the opt-in full application check: it uses real Gemini/Groq keys, mock login only in a separate development process on **port 3101**, a new isolated SQLite database, and two Chromium contexts. It submits AI requests from the UI through authenticated Socket.IO, checks shared replies, reload persistence, actual usage and queue continuation after an upstream failure. It never changes your real workspaces or enables OpenAI. This consumes a small amount of provider quota. Ordinary unit/browser tests still clear provider keys. See [runtime diagnostics](docs/AI_RUNTIME_DIAGNOSTICS.md) for the confirmed Gemini 3.8 incident and safe log fields.
 
 ## MVP limitations
+
+For deployment settings, follow the [Render Free + Neon Free release runbook](docs/RENDER_NEON_RELEASE.md) and [passing PostgreSQL verification](docs/POSTGRES_READINESS.md). The older [deployment assessment](docs/RENDER_FREE_DEPLOYMENT_PLAN.md) is historical planning evidence. Production requires `DATABASE_URL` and stores uploaded avatars in PostgreSQL; local development retains SQLite. The deployment uses a fresh, empty Neon Free database. Existing local records stay on this computer; no SQLite importer or data transfer is needed. Linux/hosted acceptance gates still apply.
 
 - One Node process and one SQLite file; provider/request guards and presence are process-local. Do not deploy multiple replicas with this architecture.
 - Free quotas and model availability vary by account and can change. Successful generation must be checked with the actual configured key.

@@ -11,6 +11,6 @@ export default async function Home() {
     name: session.user.name?.trim() || "AgentRoom member",
     image: session.user.image,
   } : null;
-  const workspaces = session?.user?.id ? listHomeWorkspaces(session.user.id) : [];
+  const workspaces = session?.user?.id ? (await listHomeWorkspaces(session.user.id)) : [];
   return <HomeClient user={user} workspaces={workspaces} />;
 }

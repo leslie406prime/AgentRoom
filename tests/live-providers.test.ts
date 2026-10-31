@@ -18,7 +18,7 @@ import { catalog, defaultModelKey, parseModelKey } from "../src/lib/ai-catalog";
 const live = process.env.RUN_LIVE_AI_TESTS === "true";
 async function collect(provider: "gemini" | "groq", model: string) {
   let text = "", usage: { input: number; output: number } | undefined;
-  for await (const event of streamWithRecovery(provider, { apiKey: providerKey(provider)!, model, system: "Reply with exactly one short word.", user: "Say OK.", maxOutputTokens: 256 })) { if ("text" in event) text += event.text; else if ("usage" in event) usage = event.usage; }
+  for await (const event of (await streamWithRecovery(provider, { apiKey: providerKey(provider)!, model, system: "Reply with exactly one short word.", user: "Say OK.", maxOutputTokens: 256 }))) { if ("text" in event) text += event.text; else if ("usage" in event) usage = event.usage; }
   return { text, usage };
 }
 describe.skipIf(!live || !process.env.GEMINI_API_KEY)("live Gemini", () => {
@@ -43,25 +43,25 @@ describe.skipIf(!live || !process.env.GROQ_API_KEY)("live Groq", () => {
     const { ensureWorker } = await import("../src/server/queue");
     const { runAgent } = await import("../src/server/agent-worker");
     const actor = randomUUID();
-    db.prepare('INSERT INTO "user"(id,name,created_at) VALUES (?,?,?)').run(actor, "Live tester", Date.now());
-    const workspace = createWorkspace(actor, { name: "Isolated live Muse verification" });
-    joinMember(actor, workspace.id, workspace.channelId);
+    (await db.prepare('INSERT INTO "user"(id,name,created_at) VALUES (?,?,?)').run(actor, "Live tester", Date.now()));
+    const workspace = (await createWorkspace(actor, { name: "Isolated live Muse verification" }));
+    (await joinMember(actor, workspace.id, workspace.channelId));
     const modelKey = `groq:${model!.id}`;
-    updateAIConfig(actor, workspace.id, { enabledProviders: ["groq"], approvedModels: [modelKey], defaultModel: modelKey, museModel: modelKey, allowPaid: false, userHourlyLimit: 2, workspaceDailyLimit: 2 });
-    sendChannelMessage(actor, workspace.id, workspace.channelId, { clientId: randomUUID(), content: "Decision: the release code is AR-MUSE-42." });
-    const job = enqueueChannelAgent(actor, workspace.id, workspace.channelId, { agent: "muse", prompt: "What is the release code we decided? Reply with only the code.", idempotencyKey: randomUUID() }).result.job;
+    (await updateAIConfig(actor, workspace.id, { enabledProviders: ["groq"], approvedModels: [modelKey], defaultModel: modelKey, museModel: modelKey, allowPaid: false, userHourlyLimit: 2, workspaceDailyLimit: 2 }));
+    (await sendChannelMessage(actor, workspace.id, workspace.channelId, { clientId: randomUUID(), content: "Decision: the release code is AR-MUSE-42." }));
+    const job = (await enqueueChannelAgent(actor, workspace.id, workspace.channelId, { agent: "muse", prompt: "What is the release code we decided? Reply with only the code.", idempotencyKey: randomUUID() })).result.job;
     let streamed = false;
     const io = { to: () => ({ emit: (event: string) => { if (event === "agent:token") streamed = true; } }) } as unknown as Server;
     ensureWorker(io, workspace.channelId, runAgent);
-    await vi.waitFor(() => {
-      const row = db.prepare("SELECT status,error FROM agent_jobs WHERE id=?").get(job.id) as { status: string; error: string | null };
+    await vi.waitFor(async () => {
+      const row = (await db.prepare("SELECT status,error FROM agent_jobs WHERE id=?").get(job.id)) as { status: string; error: string | null };
       if (row.status === "failed") throw new Error(row.error ?? "Live Muse job failed");
       expect(row.status).toBe("completed");
     }, { timeout: 60_000 });
-    const reply = (channelSnapshot(actor, workspace.id, workspace.channelId).messages as { kind: string; content: string; agent: string; provider: string; model: string }[]).find((message) => message.kind === "agent");
+    const reply = ((await channelSnapshot(actor, workspace.id, workspace.channelId)).messages as { kind: string; content: string; agent: string; provider: string; model: string }[]).find((message) => message.kind === "agent");
     expect(reply).toMatchObject({ agent: "muse", provider: "groq", model: model!.id });
     expect(reply?.content).toContain("AR-MUSE-42"); expect(streamed).toBe(true);
-    expect(getAISettings(actor, workspace.id).usage.tokens).toBeGreaterThan(0);
+    expect((await getAISettings(actor, workspace.id)).usage.tokens).toBeGreaterThan(0);
     console.info("Live Muse verified:", { provider: "groq", model: model!.id, persisted: true, channelFactMatched: true, tokenUsageRecorded: true, paidAuthorized: false });
   }, 90_000);
 });

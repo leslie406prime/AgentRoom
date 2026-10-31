@@ -1,0 +1,3 @@
+# Keep versioned migration checksums identical on Windows and Linux.
+migrations/postgres/*.sql text eol=lf
+.node-version text eol=lf

@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useHydrated } from "@/lib/use-hydrated";
 import type { getAIConfig } from "@/server/ai-workspace";
-type Config = ReturnType<typeof getAIConfig>;
+type Config = Awaited<ReturnType<typeof getAIConfig>>;
 type Check = { provider: string; ok: boolean; message?: string; models?: { key: string; accessible: boolean }[] };
 
 export default function AIProvidersForm({ workspace, config }: { workspace: string; config: Config }) {
@@ -30,13 +30,13 @@ export default function AIProvidersForm({ workspace, config }: { workspace: stri
   }
   return <section inert={!ready} className="settings-section"><h2 className="text-lg">AI agents and models</h2>
     <p className="text-xs leading-6 text-muted">Choose approved Gemini and Groq models for your team. Free access depends on your provider account plan; checking available models does not confirm billing eligibility. Review the account plan before approving conditional Llama models. AgentRoom never enables billing or switches to a paid provider automatically.</p>
-    <form onSubmit={(event) => void save(event)} className="space-y-5">
+    <form onSubmit={async (event) => void (await save(event))} className="space-y-5">
       <div className="space-y-2">{config.providers.map((p) => <div key={p.id} className="flex flex-wrap items-center gap-3 rounded-md border border-line bg-panel p-3 text-xs">
         <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={providers.includes(p.id)} onChange={() => toggle(providers, setProviders, p.id)} />{p.label}</label>
         <span className="badge">{p.configured ? "Key configured" : p.envKey + " missing"}</span>
         {checks.filter((c) => c.provider === p.id).map((c) => <span key={c.provider} className="text-muted">{c.ok ? c.models!.filter((m) => m.accessible).length + " of " + c.models!.length + " catalog models accessible" : c.message}</span>)}
       </div>)}
-        <button type="button" className="btn text-xs" onClick={() => void verify()}>Check available models</button></div>
+        <button type="button" className="btn text-xs" onClick={async () => void (await verify())}>Check available models</button></div>
       <fieldset className="space-y-2"><legend className="text-xs font-medium">Approved models</legend>
         {config.catalog.map((m) => <label key={m.key} className="flex flex-wrap items-center gap-2 text-xs"><input type="checkbox" checked={approved.includes(m.key)} onChange={() => toggle(approved, setApproved, m.key)} />{m.label}<span className="text-muted">{m.key}</span>
           {checks.flatMap((c) => c.models ?? []).filter((x) => x.key === m.key).map((x) => <span key={x.key} className="badge">{x.accessible ? "Accessible" : "Not accessible with this key"}</span>)}

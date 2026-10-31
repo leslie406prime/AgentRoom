@@ -5,7 +5,7 @@ loadEnvConfig(process.cwd(), true);
 const git = (...args: string[]) => execFileSync("git", args, { maxBuffer: 32 * 1024 * 1024, windowsHide: true });
 const paths = git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z").toString("utf8").split("\0").filter(Boolean);
 if (!paths.length) throw new Error("No staged files to scan.");
-const names = ["AUTH_SECRET", "AUTH_GOOGLE_SECRET", "GEMINI_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "WORKSPACE_CREDENTIAL_KEY"];
+const names = ["AUTH_SECRET", "AUTH_GOOGLE_SECRET", "GEMINI_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "WORKSPACE_CREDENTIAL_KEY", "DATABASE_URL", "DIRECT_DATABASE_URL"];
 const secrets = names.map((name) => ({ name, value: process.env[name]?.trim() })).filter((s): s is { name: string; value: string } => Boolean(s.value && s.value.length >= 12));
 const failures: string[] = [];
 for (const file of paths) {

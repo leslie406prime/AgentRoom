@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SignOutButton from "./SignOutButton";
 import Brand from "./Brand";
 import Icon from "./Icon";
-import { agentInfo, modelLabel, parseMention, parseModelKey, type AgentId } from "@/lib/ai-catalog";
+import { agentInfo, modelLabel, hasMultipleAgentMentions, parseMention, parseModelKey, type AgentId } from "@/lib/ai-catalog";
 
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 type Room = { id: string; name: string; archived?: number };
@@ -29,8 +29,9 @@ type ModelOption = { key: string; label: string; provider: string; available: bo
 type AIState = { models: string[]; mode: string; defaultAgent: AgentId; agents: AgentOption[]; modelOptions: ModelOption[] };
 type Tab = "chat" | "people" | "files";
 // A chosen model only applies to an agent that can run it (@Gemini -> Gemini models, @Llama -> Llama models).
-const modelFits = (agent: AgentId, key: string) => agent === "agent" || (agent === "gemini" ? parseModelKey(key)?.provider === "gemini" : agent === "llama" ? /llama/i.test(key) : false);
+const modelFits = (agent: AgentId, key: string) => agent === "agent" || (agent === "gemini" ? parseModelKey(key)?.provider === "gemini" : agent === "groq" ? parseModelKey(key)?.provider === "groq" : agent === "llama" ? /llama/i.test(key) : false);
 const initials = (name: string) => name.split(/\s+/).slice(0, 2).map((part) => part[0] ?? "").join("").toUpperCase();
+const failureCategory = (error?: string | null) => /quota|rate|limit/i.test(error??"") ? "Quota or rate limit" : /timed out|timeout/i.test(error??"") ? "Provider timeout" : /service|temporarily unavailable/i.test(error??"") ? "Provider service error" : /key|credential|configured/i.test(error??"") ? "Provider configuration" : /approved|permission|disabled/i.test(error??"") ? "Model access" : "Request error";
 const humanTime = (date: string) => new Date(date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const getStorage = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 const setStorage = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* Storage may be disabled. */ } };
@@ -48,6 +49,8 @@ export default function RoomClient({ room, user, workspace, workspaces = [] }: {
   const [selectedAgent,setSelectedAgent]=useState<AgentId|"">("");
   const [jobMeta,setJobMeta]=useState<Record<string,{agent?:AgentId;provider?:string|null;model?:string|null}>>({});
   const [selectedModel,setSelectedModel]=useState("");
+  const selectionKey = `agentroom:${user.id}:${workspace?.id ?? room.id}:assistant`;
+  function chooseAgent(agent: AgentId) { setSelectedAgent(agent); setSelectedModel(""); setAskAgent(true); setStorage(selectionKey, JSON.stringify({agent, model:"", ask:true})); setMobileTab("chat"); composerRef.current?.focus(); }
   const [jobModes,setJobModes]=useState<Record<string,string>>({});
   const [readOnly,setReadOnly]=useState(Boolean(workspace?.channels.find(c=>c.id===room.id)?.archived));
   const [messages, setMessages] = useState<Message[]>([]);
@@ -110,7 +113,7 @@ export default function RoomClient({ room, user, workspace, workspaces = [] }: {
     if (!joined || !user.id) return;
     const socket = io({ autoConnect: false, reconnection: true, reconnectionAttempts: Infinity, timeout: 8000 });
     socketRef.current = socket;
-    const applyAI=(config:AIState)=>{setAgentOptions(config.agents??[]);setModelOptions(config.modelOptions??[]);setSelectedAgent(current=>current&&config.agents?.some(a=>a.id===current)?current:config.defaultAgent??"");setSelectedModel(current=>config.models.includes(current)?current:"");setAIMode(config.mode);setDemoMode(config.mode==="demo"&&!config.agents?.some(a=>a.id!=="agent"&&a.available));};
+    const applyAI=(config:AIState)=>{setAgentOptions(config.agents??[]);setModelOptions(config.modelOptions??[]);let saved: {agent?: AgentId; model?: string; ask?: boolean} = {}; try { saved=JSON.parse(getStorage(selectionKey)??"{}"); } catch {} setSelectedAgent(current=>current&&config.agents?.some(a=>a.id===current)?current:config.agents?.some(a=>a.id===saved.agent)?saved.agent!:config.defaultAgent??"");setSelectedModel(current=>config.models.includes(current)?current:saved.model&&config.models.includes(saved.model)?saved.model:""); if(saved.ask)setAskAgent(true);setAIMode(config.mode);setDemoMode(config.mode==="demo"&&!config.agents?.some(a=>a.id!=="agent"&&a.available));};
     socket.on("workspace:ai",applyAI);
     socket.on("connect", () => {
       setConnection("reconnecting");
@@ -160,7 +163,8 @@ export default function RoomClient({ room, user, workspace, workspaces = [] }: {
       return found ? current.map((member) => member.id === changedId ? { ...member, online, ...(memberName ? { name: memberName } : {}), ...(color ? { color } : {}) } : member) : memberName && color ? [...current, { id: changedId, name: memberName, color, online }] : current;
     }));
     socket.on("queue:update", (list: Job[]) => setJobs((current) => {
-      const keep = current.filter((job) => !["queued", "running"].includes(job.status));
+      const received = new Set(list.map(job => job.id));
+      const keep = current.filter((job) => !["queued", "running"].includes(job.status) && !received.has(job.id));
       return [...keep, ...list];
     }));
     socket.on("agent:token", ({jobId,token,mode,agent,provider,model}:{jobId:string;token:string;mode?:string;agent?:AgentId;provider?:string|null;model?:string|null})=>{if(mode)setJobModes(current=>({...current,[jobId]:mode}));setJobMeta(current=>current[jobId]?current:{...current,[jobId]:{agent,provider,model}});setStreaming(current=>({...current,[jobId]:(current[jobId]??"")+token}));});
@@ -172,7 +176,7 @@ export default function RoomClient({ room, user, workspace, workspaces = [] }: {
     });
     socket.connect();
     return () => { socket.disconnect(); socketRef.current = null; };
-  }, [joined, name, room.id, user.id, onRoomEvent, storagePrefix]);
+  }, [joined, name, room.id, user.id, onRoomEvent, selectionKey, storagePrefix]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, streaming]);
   useEffect(() => {
@@ -184,12 +188,13 @@ export default function RoomClient({ room, user, workspace, workspaces = [] }: {
   }, []);
 
   const selected = artifacts.find((item) => item.id === activeArtifact) ?? null;
-  const orderedJobs = useMemo(() => jobs.filter((job) => ["running", "queued", "failed"].includes(job.status)), [jobs]);
+  const orderedJobs = useMemo(() => jobs.filter((job) => ["running", "queued"].includes(job.status)), [jobs]);
   const onlineCount = members.filter((member) => member.online).length;
 
   function send() {
     const content = draft.trim();
     if (!content || !socketRef.current || connection !== "connected") return;
+    if (hasMultipleAgentMentions(content)) { setError("Choose one agent mention per request."); return; }
     const mention = parseMention(content);
     const wantsAgent = askAgent || Boolean(mention);
     if (wantsAgent) {
@@ -249,7 +254,7 @@ export default function RoomClient({ room, user, workspace, workspaces = [] }: {
   }
 
   function retry(job: Job) {
-    socketRef.current?.emit("agent:request", { prompt: job.prompt, agent: job.agent ?? undefined, model: job.agent === "muse" ? undefined : selectedModel || undefined, idempotencyKey: crypto.randomUUID() }, (reply: { error?: string }) => { if (reply?.error) setError(reply.error); });
+    socketRef.current?.emit("agent:request", { prompt: job.prompt, agent: job.agent ?? undefined, model: job.agent === "muse" ? undefined : selectedModel && modelFits(job.agent ?? "agent", selectedModel) ? selectedModel : job.model || undefined, idempotencyKey: crypto.randomUUID() }, (reply: { error?: string }) => { if (reply?.error) setError(reply.error); });
   }
 
   const panelState = (panel: Tab) => mobileTab === panel ? "flex" : "hidden";
@@ -262,7 +267,7 @@ export default function RoomClient({ room, user, workspace, workspaces = [] }: {
     <div className={`grid min-h-0 flex-1 grid-cols-1 ${detailsOpen ? "lg:grid-cols-[232px_minmax(0,1fr)_340px] xl:grid-cols-[244px_minmax(0,1fr)_360px]" : "lg:grid-cols-[232px_minmax(0,1fr)] xl:grid-cols-[244px_minmax(0,1fr)]"}`}>
       <aside aria-label="Workspace sidebar" className={`${panelState("people")} min-h-0 flex-col overflow-y-auto border-r border-line bg-panel lg:flex`}>
         <div className="hidden h-[68px] shrink-0 items-center border-b border-line px-5 lg:flex"><Brand /></div>
-        {workspace && <WorkspaceNav workspace={workspace} workspaces={workspaces} user={user} activeChannelId={room.id} showIdentity={false} showSettings={false} agents={agentOptions} />}
+        {workspace && <WorkspaceNav workspace={workspace} workspaces={workspaces} user={user} activeChannelId={room.id} showIdentity={false} showSettings={false} agents={agentOptions.map(a => ({...a, modelLabel: a.id === selectedAgent && selectedModel && modelFits(a.id,selectedModel) ? modelLabel(selectedModel) : a.modelLabel}))} selectedAgent={selectedAgent} onSelectAgent={id => chooseAgent(id as AgentId)} />}
         {!workspace && <div className="border-b border-line p-5"><p className="eyebrow">Workspace</p><h2 className="mt-3 text-sm font-semibold">{room.name}</h2><button onClick={copyInvite} className="btn mt-4 w-full"><Icon name="link" />{inviteLabel}</button></div>}
         <section className="px-3 pb-5 pt-2">
           <div className="mb-3 flex items-center justify-between px-2"><h2 className="eyebrow">Members</h2><span className="text-[10px] text-muted">{members.length}</span></div>
@@ -271,9 +276,6 @@ export default function RoomClient({ room, user, workspace, workspaces = [] }: {
             <span className="min-w-0 flex-1 truncate text-xs">{member.name}{member.id === memberId && <span className="text-muted"> (you)</span>}</span>
           </div>)}
           {members.length === 0 && <p className="px-2 text-xs text-muted">Connecting to your team…</p>}</div>
-        </section>
-        <section className="border-t border-line px-3 py-5"><h2 className="eyebrow mb-3 px-2">AI agents</h2>
-          <button onClick={() => { setAskAgent(true); setMobileTab("chat"); composerRef.current?.focus(); }} className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left hover:bg-hover"><span className="grid h-7 w-7 place-items-center rounded-md border border-line bg-white text-accent"><Icon name="agent" /></span><span className="min-w-0 flex-1"><span className="block text-xs font-medium">Room agent</span><span className="mt-0.5 block text-[10px] text-muted">{orderedJobs.some(job => job.status === "running") ? "Working with your team" : "Ready when you are"}</span></span><span className="badge">AI</span></button>
         </section>
         <div className="mt-auto pt-4">
           {workspace && <Link href={"/workspaces/" + workspace.id} className="mx-3 mb-3 flex items-center gap-2 rounded-md px-2 py-2 text-xs text-muted hover:bg-hover hover:text-ink"><Icon name="settings" />Workspace settings</Link>}
@@ -294,7 +296,7 @@ export default function RoomClient({ room, user, workspace, workspaces = [] }: {
           </div>
         </header>
         {inviteLink && <div className="shrink-0 border-b border-line bg-panel px-5 py-3 text-xs"><label className="settings-label">New invitation link (single use, expires in 7 days)<input aria-label="New invitation link" readOnly className="field text-xs" value={inviteLink} /></label><button className="mt-2 text-xs text-muted underline underline-offset-2" onClick={() => setInviteLink("")}>Dismiss invitation link</button></div>}
-        {selectedAgent && agentOptions.find(a => a.id === selectedAgent)?.modelLabel && <div className="flex shrink-0 items-center gap-2 border-b border-line px-5 py-2 text-[11px] text-muted"><Icon name="shield" className="h-3 w-3" />Default assistant: {agentInfo[selectedAgent].label} · {agentOptions.find(a => a.id === selectedAgent)?.modelLabel}</div>}
+        {selectedAgent && agentOptions.find(a => a.id === selectedAgent)?.modelLabel && <div className="flex shrink-0 items-center gap-2 border-b border-line px-5 py-2 text-[11px] text-muted"><Icon name="shield" className="h-3 w-3" />Selected assistant: {agentInfo[selectedAgent].label} · {selectedModel && modelFits(selectedAgent,selectedModel) ? modelLabel(selectedModel) : agentOptions.find(a => a.id === selectedAgent)?.modelLabel}</div>}
         {demoMode && <div className="flex shrink-0 items-start gap-2 border-b border-line bg-panel px-5 py-2.5 text-[11px] leading-5 text-muted"><Icon name="agent" className="mt-0.5 h-3.5 w-3.5 shrink-0" /><p><strong className="mr-2 font-medium text-ink">DEMO MODE</strong>No AI provider is configured for this workspace. Sample responses and artifacts are generated locally, not by a model.</p></div>}
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 sm:px-6" aria-live="polite" aria-relevant="additions">
           {messages.length === 0 && Object.keys(streaming).length === 0 ? <div className="mx-auto flex h-full min-h-64 max-w-sm flex-col items-center justify-center pb-8 text-center"><span className="grid h-12 w-12 place-items-center rounded-lg border border-line bg-panel text-muted"><Icon name="hash" className="h-6 w-6" /></span><p className="eyebrow mt-5">A shared place to start</p><h2 className="mt-2 text-xl font-semibold tracking-tight">Welcome to #{room.name}</h2><p className="mt-3 text-sm leading-6 text-muted">Share an idea, make a plan, or bring your agent into the conversation. Great work starts here.</p></div> :
@@ -322,11 +324,11 @@ export default function RoomClient({ room, user, workspace, workspaces = [] }: {
           {askAgent && agentOptions.find(a => a.id === selectedAgent && !a.available) && <p className="mb-2 text-xs text-muted">{agentOptions.find(a => a.id === selectedAgent)?.label} is unavailable: {agentOptions.find(a => a.id === selectedAgent)?.reason}</p>}
           {readOnly && <p className="mb-2 text-xs text-muted">This channel is archived. Its conversation is read-only.</p>}
           <div className="rounded-lg border border-neutral-300 bg-white transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/5">
-            <textarea disabled={readOnly} ref={composerRef} value={draft} onChange={event => { setDraft(event.target.value); sendTyping(Boolean(event.target.value)); }} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} rows={2} placeholder={askAgent ? "Ask " + (selectedAgent ? agentInfo[selectedAgent].label : "an agent") + " anything…" : "Message #" + room.name + " — mention @Muse, @Gemini or @Llama…"} aria-label="Message composer" className="max-h-40 min-h-[76px] w-full resize-y rounded-t-lg bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted focus-visible:outline-none" />
+            <textarea disabled={readOnly} ref={composerRef} value={draft} onChange={event => { const text=event.target.value; setDraft(text); sendTyping(Boolean(text)); const mention=parseMention(text); if(mention && mention.agent !== selectedAgent)chooseAgent(mention.agent); }} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} rows={2} placeholder={askAgent ? "Ask " + (selectedAgent ? agentInfo[selectedAgent].label : "an agent") + " anything…" : "Message #" + room.name + " — mention @Muse, @Gemini, @Groq or @Llama…"} aria-label="Message composer" className="max-h-40 min-h-[76px] w-full resize-y rounded-t-lg bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted focus-visible:outline-none" />
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/60 px-2.5 py-2"><div className="flex min-w-0 flex-wrap items-center gap-1">
               <button onClick={() => setAskAgent(value => !value)} aria-pressed={askAgent} className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium ${askAgent ? "bg-accent/[.08] text-accent" : "text-muted hover:bg-hover hover:text-ink"}`}><Icon name="agent" className="h-3.5 w-3.5" />Ask agent</button>
-              {askAgent && <select aria-label="AI agent" className="max-w-32 rounded border border-line bg-white px-1.5 py-1 text-[11px]" value={selectedAgent} onChange={e => { setSelectedAgent(e.target.value as AgentId); setSelectedModel(""); }}>{agentOptions.map(a => <option key={a.id} value={a.id} disabled={!a.available}>{a.label}{a.available ? "" : " (unavailable)"}</option>)}</select>}
-              {askAgent && selectedAgent !== "muse" && <select aria-label="Approved AI model" className="max-w-40 rounded border border-line bg-white px-1.5 py-1 text-[11px]" value={selectedModel} onChange={e => setSelectedModel(e.target.value)}><option value="">{selectedAgent ? "Default model" : "Model"}</option>{modelOptions.filter(m => selectedAgent && modelFits(selectedAgent, m.key)).map(m => <option key={m.key} value={m.key} disabled={!m.available}>{m.label}{m.available ? "" : " (unavailable)"}</option>)}</select>}
+              {askAgent && <select aria-label="AI agent" className="max-w-32 rounded border border-line bg-white px-1.5 py-1 text-[11px]" value={selectedAgent} onChange={e => { chooseAgent(e.target.value as AgentId); }}>{agentOptions.map(a => <option key={a.id} value={a.id} disabled={!a.available}>{a.label}{a.available ? "" : " (unavailable)"}</option>)}</select>}
+              {askAgent && selectedAgent !== "muse" && <select aria-label="Approved AI model" className="max-w-40 rounded border border-line bg-white px-1.5 py-1 text-[11px]" value={selectedModel} onChange={e => {setSelectedModel(e.target.value);setStorage(selectionKey,JSON.stringify({agent:selectedAgent,model:e.target.value,ask:true}));}}><option value="">{selectedAgent ? "Default model" : "Model"}</option>{modelOptions.filter(m => selectedAgent && modelFits(selectedAgent, m.key)).map(m => <option key={m.key} value={m.key} disabled={!m.available}>{m.label}{m.available ? "" : " (unavailable)"}</option>)}</select>}
             </div><button onClick={send} disabled={readOnly || !draft.trim() || connection !== "connected"} aria-label={askAgent ? "Send request to agent" : "Send message"} className="btn-primary min-h-8 px-3 py-1.5 text-xs">Send<Icon name="send" className="h-3.5 w-3.5" /></button></div>
           </div>
           <div className="mt-2 flex justify-between gap-2 px-1 text-[10px] text-muted"><span>{askAgent ? "The agent's response is shared with everyone." : "Everyone in this channel can see your message."}</span><span className="hidden shrink-0 sm:block">Enter to send · Shift + Enter for newline</span></div>
@@ -348,7 +350,7 @@ export default function RoomClient({ room, user, workspace, workspaces = [] }: {
         </div>
         <div className="max-h-[42%] shrink-0 overflow-y-auto border-t border-line bg-panel">
           <section className="px-4 py-4"><h2 className="eyebrow mb-3 flex items-center gap-2"><Icon name="activity" className="h-3.5 w-3.5" />AI activity</h2><div className="flex items-center gap-2 text-xs"><span className={`h-1.5 w-1.5 rounded-full ${orderedJobs.some(job => job.status === "running") ? "animate-pulse bg-accent" : "bg-success"}`} /><span>{orderedJobs.some(job => job.status === "running") ? `Agent working · ${orderedJobs.find(job => job.status === "running")?.requesterName}` : orderedJobs.some(job => job.status === "queued") ? `Agent waiting · ${orderedJobs.filter(job => job.status === "queued").length} queued` : "Agent idle"}</span></div></section>
-          <section className="border-t border-line px-4 py-4" data-testid="agent-queue"><div className="mb-3 flex items-center justify-between"><h2 className="eyebrow">Agent queue</h2><span className="badge">{orderedJobs.filter(job => job.status === "queued").length}</span></div>{orderedJobs.length === 0 ? <p className="text-[11px] text-muted">All caught up. No requests waiting.</p> : <div className="space-y-2">{orderedJobs.map(job => <div key={job.id} className="rounded-md border border-line bg-white p-3"><div className="flex items-center gap-2"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${job.status === "running" ? "animate-pulse bg-accent" : job.status === "failed" ? "bg-danger" : "bg-amber-600"}`} /><span className="text-[11px] font-medium">{job.status === "running" ? `Working · ${job.requesterName}` : job.status === "failed" ? "Request failed" : `#${orderedJobs.filter(item => item.status === "queued").findIndex(item => item.id === job.id) + 1} · ${job.requesterName}`}</span>{job.status === "failed" && <button aria-label="Retry request" onClick={() => retry(job)} className="ml-auto text-[11px] text-accent">Retry</button>}{job.status === "queued" && job.requesterId === memberId && <button aria-label="Cancel queued request" onClick={() => socketRef.current?.emit("agent:cancel", { jobId: job.id }, (reply: { error?: string }) => { if (reply?.error) setError(reply.error); })} className="ml-auto text-[11px] text-muted hover:text-danger">Cancel</button>}</div><p className="mt-2 line-clamp-2 text-[11px] leading-5 text-muted">{job.status === "failed" && job.error ? job.error : job.prompt}</p></div>)}</div>}</section>
+          <section className="border-t border-line px-4 py-4" data-testid="agent-queue"><div className="mb-3 flex items-center justify-between"><h2 className="eyebrow">Agent queue</h2><span className="badge">{orderedJobs.filter(job => job.status === "queued").length}</span></div>{orderedJobs.length === 0 ? <p className="text-[11px] text-muted">All caught up. No requests waiting.</p> : <div className="space-y-2">{orderedJobs.filter(job => job.status !== "failed").map(job => <div key={job.id} className="rounded-md border border-line bg-white p-3"><div className="flex items-center gap-2"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${job.status === "running" ? "animate-pulse bg-accent" : job.status === "failed" ? "bg-danger" : "bg-amber-600"}`} /><span className="text-[11px] font-medium">{job.status === "running" ? `Working · ${job.requesterName}` : job.status === "failed" ? "Request failed" : `#${orderedJobs.filter(item => item.status === "queued").findIndex(item => item.id === job.id) + 1} · ${job.requesterName}`}</span>{job.status === "failed" && <button aria-label="Retry request" onClick={() => retry(job)} className="ml-auto text-[11px] text-accent">Retry</button>}{job.status === "queued" && job.requesterId === memberId && <button aria-label="Cancel queued request" onClick={() => socketRef.current?.emit("agent:cancel", { jobId: job.id }, (reply: { error?: string }) => { if (reply?.error) setError(reply.error); })} className="ml-auto text-[11px] text-muted hover:text-danger">Cancel</button>}</div><p className="mt-2 line-clamp-2 text-[11px] leading-5 text-muted">{job.status === "failed" && job.error ? job.error : job.prompt}</p></div>)}</div>}{jobs.some(job=>job.status === "failed") && <details className="mt-3"><summary className="cursor-pointer text-xs text-muted">Failed requests ({jobs.filter(job=>job.status === "failed").length}) ? history</summary><div className="mt-2 space-y-2">{jobs.filter(job=>job.status === "failed").slice().reverse().map(job=><div key={job.id} className="rounded-md border border-line p-3 text-[11px]"><p className="font-medium">{agentInfo[job.agent ?? "agent"].label} ? {failureCategory(job.error)}</p><p className="mt-1 text-muted">{job.error || "Internal application error. Please retry."}</p><button disabled={readOnly || connection !== "connected"} onClick={()=>retry(job)} className="mt-2 text-accent">Retry request</button></div>)}</div></details>}</section>
           <details className="border-t border-line px-4 py-3"><summary className="flex cursor-pointer list-none items-center justify-between text-xs text-muted"><span className="flex items-center gap-2"><Icon name="people" className="h-3.5 w-3.5" />Online members<span className="text-success">{onlineCount}</span></span><Icon name="chevron" className="h-3 w-3" /></summary><div className="space-y-2 pt-3">{members.filter(member => member.online).map(member => <div key={member.id} className="flex items-center gap-2 text-xs"><span className="h-1.5 w-1.5 rounded-full bg-success" />{member.name}</div>)}{onlineCount === 0 && <p className="text-xs text-muted">No members online.</p>}</div></details>
         </div>
         <div className="shrink-0 border-t border-line px-4 py-2 text-[9px] text-muted">Edits are versioned · overwrites require confirmation</div>

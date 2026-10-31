@@ -10,13 +10,13 @@ type Context = { params: Promise<{ id: string }> };
 export async function POST(request: Request, { params }: Context) {
   try {
     const actor = await apiActor(request), { id } = await params;
-    requireRole(actor, id, "settings"); rateLimit("ai-verify:" + actor, 5);
+    (await requireRole(actor, id, "settings")); rateLimit("ai-verify:" + actor, 5);
     const providers = [];
     for (const provider of ["gemini", "groq"] as const) {
       const result = await verifyProvider(provider, true);
       providers.push({ provider, ...(result.ok ? { ok: true, models: catalog.filter((m) => m.provider === provider).map((m) => ({ key: modelKey(m.provider, m.id), accessible: result.ids.includes(m.id) })) } : { ok: false, message: result.message }) });
     }
-    notifyWorkspaceAI(id, publicAIConfig(actor, id));
+    notifyWorkspaceAI(id, (await publicAIConfig(actor, id)));
     return Response.json({ providers }, { headers: { "cache-control": "private, no-store" } });
   } catch (e) { return apiError(e); }
 }

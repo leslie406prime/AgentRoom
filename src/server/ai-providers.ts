@@ -5,7 +5,7 @@ import { PublicJobError, agentFailureDiagnostic, safeErrorMetadata, safeModel } 
 import { catalogModel, modelKey, providerInfo, type ProviderId } from "../lib/ai-catalog";
 
 // Server-only. API keys are passed in per call by the caller and never stored on these objects.
-export type StreamParams = { apiKey: string; model: string; system: string; user: string; maxOutputTokens: number; jobId?: string; openaiOptions?: { workspaceKey: boolean } };
+export type StreamParams = { apiKey: string; model: string; system: string; user: string; maxOutputTokens: number; jobId?: string; signal?: AbortSignal; openaiOptions?: { workspaceKey: boolean } };
 export type StreamEvent = { text: string } | { usage: { input: number; output: number } } | { artifactArgs: string };
 export interface AIProvider { id: ProviderId; stream(params: StreamParams): AsyncIterable<StreamEvent>; listModels(apiKey: string): Promise<string[]> }
 
@@ -46,7 +46,7 @@ const openaiProvider: AIProvider = {
   async *stream(p) {
     const client = new OpenAI({ apiKey: p.apiKey, maxRetries: 0, ...(p.openaiOptions?.workspaceKey ? { organization: null, project: null } : {}) });
     const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [{ type: "function", function: { name: "save_artifact", description: "Create or update a shared code or markdown artifact in the room.", parameters: { type: "object", additionalProperties: false, required: ["title", "type", "language", "content"], properties: { title: { type: "string" }, type: { type: "string", enum: ["code", "document"] }, language: { type: "string" }, content: { type: "string" } } } } }];
-    const stream = await client.chat.completions.create({ model: p.model, max_completion_tokens: p.maxOutputTokens, stream_options: { include_usage: true }, stream: true, messages: [{ role: "system", content: p.system }, { role: "user", content: p.user }], tools, tool_choice: "auto" }, { timeout: timeoutMs });
+    const stream = await client.chat.completions.create({ model: p.model, max_completion_tokens: p.maxOutputTokens, stream_options: { include_usage: true }, stream: true, messages: [{ role: "system", content: p.system }, { role: "user", content: p.user }], tools, tool_choice: "auto" }, { timeout: timeoutMs, signal: p.signal });
     let args = "";
     for await (const chunk of stream) {
       if (chunk.usage) yield { usage: { input: chunk.usage.prompt_tokens, output: chunk.usage.completion_tokens } };
@@ -66,7 +66,7 @@ const geminiProvider: AIProvider = {
     const client = new GoogleGenAI({ apiKey: p.apiKey, httpOptions: { timeout: timeoutMs, retryOptions: { attempts: 1 } } });
     // 2.5 models count hidden "thinking" tokens against maxOutputTokens, which can truncate the visible answer; disable it for 2.5.
     const thinking = p.model.startsWith("gemini-2.5") ? { thinkingConfig: { thinkingBudget: 0 } } : {};
-    const stream = await client.models.generateContentStream({ model: p.model, contents: [{ role: "user", parts: [{ text: p.user }] }], config: { systemInstruction: p.system, maxOutputTokens: p.maxOutputTokens, ...thinking } });
+    const stream = await client.models.generateContentStream({ model: p.model, contents: [{ role: "user", parts: [{ text: p.user }] }], config: { systemInstruction: p.system, maxOutputTokens: p.maxOutputTokens, abortSignal: p.signal, ...thinking } });
     let usage: { input: number; output: number } | undefined, blocked: string | undefined;
     for await (const chunk of stream) {
       const text = chunk.candidates?.[0]?.content?.parts?.map((part) => (part.thought ? "" : part.text ?? "")).join("") ?? "";
@@ -90,7 +90,7 @@ const groqProvider: AIProvider = {
   id: "groq",
   async *stream(p) {
     const client = new Groq({ apiKey: p.apiKey, maxRetries: 0, timeout: timeoutMs });
-    const stream = await client.chat.completions.create({ model: p.model, max_completion_tokens: p.maxOutputTokens, stream: true, messages: [{ role: "system", content: p.system }, { role: "user", content: p.user }] });
+    const stream = await client.chat.completions.create({ model: p.model, max_completion_tokens: p.maxOutputTokens, stream: true, messages: [{ role: "system", content: p.system }, { role: "user", content: p.user }] }, {signal:p.signal});
     for await (const chunk of stream) {
       const text = chunk.choices[0]?.delta?.content;
       if (text) yield { text };
@@ -144,7 +144,7 @@ export async function* streamWithRecovery(provider: ProviderId, params: StreamPa
       if (failure.kind === "rate_limit") setProviderCooldown(provider, failure.retryAfterMs ?? 30_000);
       failure.diagnostics = { ...failure.diagnostics, attempts: attempt + 1, partial: started };
       console.warn(JSON.stringify({ level: "warn", event: "agent_provider_attempt_failed", jobId: params.jobId ?? null, provider, model: safeModel(params.model), ...agentFailureDiagnostic(failure), stage: "provider" }));
-      const retryable = failure.kind === "unavailable" || failure.kind === "network" || (failure.kind === "rate_limit" && (failure.retryAfterMs ?? Infinity) <= 8000);
+      const retryable = !params.signal?.aborted && (failure.kind === "unavailable" || failure.kind === "network" || (failure.kind === "rate_limit" && (failure.retryAfterMs ?? Infinity) <= 8000));
       if (!started && attempt === 0 && retryable) { await sleep.fn(Math.min(failure.retryAfterMs ?? 1500, 8000)); continue; }
       throw Object.assign(failure, { partial: started });
     }
