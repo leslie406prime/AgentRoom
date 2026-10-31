@@ -28,6 +28,8 @@ uploads/
 node_modules/
 .next/
 .next-e2e/
+.next-live-e2e/
+.next-verify/
 .npm-cache/
 .vscode/
 .turbo/

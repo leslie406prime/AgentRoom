@@ -12,6 +12,7 @@ import { Join,MessageInput,AgentInput,ArtifactInput,TypingInput } from "./collab
 import { runAgent } from "./agent-worker";
 import { HttpError,rateLimit } from "./http-security";
 import type { Action } from "./permissions";
+import { agentFailureDiagnostic } from "./job-errors";
 type AuthSocket=Socket & {data:{roomId?:string;workspaceId?:string;memberId?:string;memberName?:string;userId?:string;sessionToken?:string}};
 const memberSockets=new Map<string,Set<string>>();
 function reply(ack:unknown,value:unknown){if(typeof ack==="function")ack(value);}
@@ -49,7 +50,7 @@ export function registerSocketHandlers(io:Server){
   });
   socket.on("agent:request",(input:unknown,ack:unknown)=>{
    if(!authorized(socket,"agent")){reply(ack,{error:"Not found."});return;}const parsed=AgentInput.safeParse(input);if(!parsed.success){reply(ack,{error:"Agent prompts must be between 1 and 4,000 characters."});return;}
-   try{const c=context(socket);rateLimit("agent:"+c.actor,6);const {result,messageEvent}=enqueueChannelAgent(c.actor,c.workspace,c.channel,parsed.data);if(result.event)io.to(c.channel).emit("room:event",result.event);if(messageEvent)io.to(c.channel).emit("room:event",messageEvent);io.to(c.channel).emit("queue:update",listQueueJobs(c.channel));ensureWorker(io,c.channel,runAgent);reply(ack,{ok:true,jobId:result.job.id,duplicate:result.duplicate});}catch(error){failure(ack,error);}
+   try{const c=context(socket);rateLimit("agent:"+c.actor,6);const {result,messageEvent}=enqueueChannelAgent(c.actor,c.workspace,c.channel,parsed.data);if(result.event)io.to(c.channel).emit("room:event",result.event);if(messageEvent)io.to(c.channel).emit("room:event",messageEvent);io.to(c.channel).emit("queue:update",listQueueJobs(c.channel));ensureWorker(io,c.channel,runAgent);reply(ack,{ok:true,jobId:result.job.id,duplicate:result.duplicate});}catch(error){console.warn(JSON.stringify({level:"warn",event:"agent_request_rejected",roomId:socket.data.roomId,...agentFailureDiagnostic(error),stage:"enqueue"}));failure(ack,error);}
   });
   socket.on("agent:cancel",(input:unknown,ack:unknown)=>{
    if(!authorized(socket,"agent")){reply(ack,{error:"Not found."});return;}const parsed=z.object({jobId:z.string().min(8).max(80)}).strict().safeParse(input);if(!parsed.success){reply(ack,{error:"Invalid job."});return;}

@@ -49,32 +49,32 @@ export function selectAgentTarget(actor:string,workspace:string,requested:Reques
  requireRole(actor,workspace,"agent");const cfg=loadConfig(workspace);
  const agent=requested.agent??defaultAgent(workspace,cfg),model=requested.model?normalizeModelKey(requested.model):undefined;
  const target=agentTarget(workspace,cfg,agent,model);
- if(!target.ok)throw new HttpError(400,target.reason);
+ if(!target.ok)throw new HttpError(400,target.reason,target.code);
  return {agent,model:target.modelKey,provider:target.modelKey?parseModelKey(target.modelKey)!.provider:null,credential:target.credential};
 }
 export {enforceRequestLimits};
 // Server worker only: this value includes a decrypted key and must never be serialized.
 export function jobAI(job:AgentJob){
  const channel=db.prepare("SELECT c.workspace_id AS workspaceId,w.unclaimed_legacy AS unclaimed,c.archived FROM channels c JOIN workspaces w ON w.id=c.workspace_id WHERE c.id=? AND c.visibility='public'").get(job.room_id) as {workspaceId:string;unclaimed:number;archived:number}|undefined;
- if(!channel||channel.unclaimed||channel.archived)throw new PublicJobError("This channel is unavailable.");
+ if(!channel||channel.unclaimed||channel.archived)throw new PublicJobError("This channel is unavailable.",false,"CHANNEL_UNAVAILABLE");
  const member=db.prepare("SELECT user_id FROM members WHERE room_id=? AND id=?").get(job.room_id,job.requester_id) as {user_id:string|null}|undefined;
- if(!member)throw new PublicJobError("The requester no longer has access to this channel.");
- if(member.user_id){try{requireRole(member.user_id,channel.workspaceId,"agent");}catch{throw new PublicJobError("The requester no longer has access to this channel.");}}
+ if(!member)throw new PublicJobError("The requester no longer has access to this channel.",false,"ACCESS_DENIED");
+ if(member.user_id){try{requireRole(member.user_id,channel.workspaceId,"agent");}catch{throw new PublicJobError("The requester no longer has access to this channel.",false,"ACCESS_DENIED");}}
  const workspaceId=channel.workspaceId,cfg=loadConfig(workspaceId),agent=(job.agent??"agent") as AgentId;
  const stored=job.model?normalizeModelKey(job.model):null;
  // Muse always follows the owner's current choice; other agents must still be allowed to run the model they were queued with.
  const target=agentTarget(workspaceId,cfg,agent,agent==="muse"?null:stored);
- if(!target.ok)throw new PublicJobError(target.reason.startsWith("Not approved")?"This job's model is no longer approved. Choose an approved model and submit again.":`This job can't run: ${target.reason}`);
+ if(!target.ok)throw new PublicJobError(target.reason.startsWith("Not approved")?"This job's model is no longer approved. Choose an approved model and submit again.":`This job can't run: ${target.reason}`,false,target.code);
  const base={workspaceId,agent,agentLabel:agentInfo[agent].label,maxOutputTokens:agent==="muse"?2048:maxOutputTokens};
  if(!target.modelKey)return {...base,provider:null as ProviderId|null,model:"demo",modelKey:null as string|null,key:null as string|null,mode:"demo" as const,price:{input:0,output:0}};
  const parsed=parseModelKey(target.modelKey)!;
  if(parsed.provider!=="openai"){
-  const key=providerKey(parsed.provider);if(!key)throw new PublicJobError("This provider is not configured on the server.");
+  const key=providerKey(parsed.provider);if(!key)throw new PublicJobError("This provider is not configured on the server.",false,"MISSING_ENVIRONMENT");
   return {...base,provider:parsed.provider as ProviderId|null,model:parsed.id,modelKey:target.modelKey as string|null,key:key as string|null,mode:"environment" as const,price:{input:0,output:0}};
  }
  const row=settingsRow(workspaceId);
  let key=process.env.OPENAI_API_KEY??null;
- if(row.credential_ciphertext){try{key=decryptCredential(workspaceId,row.credential_ciphertext);}catch{throw new PublicJobError("The workspace credential could not be decrypted. Ask an owner to save it again.");}}
+ if(row.credential_ciphertext){try{key=decryptCredential(workspaceId,row.credential_ciphertext);}catch{throw new PublicJobError("The workspace credential could not be decrypted. Ask an owner to save it again.",false,"CREDENTIAL_DECRYPTION_FAILED");}}
  const prices=z.record(ModelId,Price).parse(JSON.parse(row.pricing)),price=Object.hasOwn(prices,parsed.id)?prices[parsed.id]:undefined;
  if(key&&!price)throw new PublicJobError("An owner must configure token prices for this model before it can run.");
  return {...base,provider:"openai" as ProviderId|null,model:parsed.id,modelKey:target.modelKey as string|null,key,mode:mode(row),price:price??{input:0,output:0}};
@@ -83,9 +83,9 @@ export const maxOutputTokens=1024;
 export function reserveUsage(job:AgentJob,config:ReturnType<typeof jobAI>,inputBound:number){
  return db.transaction(()=>{
   const row=settingsRow(config.workspaceId),totals=usageSummary(config.workspaceId);
-  if(db.prepare("SELECT 1 FROM usage_records WHERE workspace_id=? AND job_id=?").get(config.workspaceId,job.id))throw new PublicJobError("This interrupted job already reserved usage. Submit a new request.");
+  if(db.prepare("SELECT 1 FROM usage_records WHERE workspace_id=? AND job_id=?").get(config.workspaceId,job.id))throw new PublicJobError("This interrupted job already reserved usage. Submit a new request.",false,"USAGE_RESERVATION_EXISTS");
   const out=config.maxOutputTokens??maxOutputTokens,tokens=config.mode==="demo"?0:inputBound+out,cost=config.mode==="demo"?0:Math.ceil(inputBound*config.price.input+out*config.price.output);
-  if(totals.tokens+tokens>row.monthly_token_limit||totals.spendMicros+cost>row.monthly_spend_micros)throw new PublicJobError("The workspace monthly usage or spending limit has insufficient remaining quota for this job.");
+  if(totals.tokens+tokens>row.monthly_token_limit||totals.spendMicros+cost>row.monthly_spend_micros)throw new PublicJobError("The workspace monthly usage or spending limit has insufficient remaining quota for this job.",false,"WORKSPACE_QUOTA");
   db.prepare("INSERT INTO usage_records(id,workspace_id,channel_id,job_id,model,mode,reserved_tokens,reserved_cost_micros,input_rate,output_rate,status,created_at,provider,agent) VALUES (?,?,?,?,?,?,?,?,?,?,'reserved',?,?,?)").run(randomUUID(),config.workspaceId,job.room_id,job.id,config.model,config.mode,tokens,cost,config.price.input,config.price.output,Date.now(),config.provider,config.agent);
  }).immediate();
 }

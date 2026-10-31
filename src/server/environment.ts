@@ -1,6 +1,7 @@
 import { loadEnvConfig } from "@next/env";
 import { assertMockOAuthEnvironment } from "./mock-oauth";
-loadEnvConfig(process.cwd(), process.env.NODE_ENV !== "production");
+const loadedEnvironment = loadEnvConfig(process.cwd(), process.env.NODE_ENV !== "production");
+export const environmentFiles = loadedEnvironment.loadedEnvFiles.map(file => file.path);
 assertMockOAuthEnvironment();
 if(!process.env.AUTH_SECRET || process.env.AUTH_SECRET.trim().length < 32) throw new Error("Set AUTH_SECRET to at least 32 random characters in the project-root .env.local or server environment. Existing environment variables take precedence over .env files.");
 if(process.env.NODE_ENV==="production"&&!process.env.AUTH_URL)throw new Error("Set AUTH_URL to the canonical application origin.");

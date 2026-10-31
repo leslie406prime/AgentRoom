@@ -59,10 +59,10 @@ it("runs the new-workspace default Muse on current Gemini without legacy 2.5 thi
   mocks.gemini.mockImplementation(geminiReply(["The team decided to keep the white interface."]));
   const job = ask(actor, a, "Summarize our decision."); await finish(a, job);
   const call = mocks.gemini.mock.calls[0][0];
-  expect(call.model).toBe("gemini-3.8-flash"); expect(call.config.maxOutputTokens).toBe(2048);
+  expect(call.model).toBe("gemini-3.5-flash-lite"); expect(call.config.maxOutputTokens).toBe(2048);
   expect(call.config.thinkingConfig).toBeUndefined();
   expect(call.contents[0].parts[0].text).toContain("Decision: keep the white interface.");
-  expect(agentMessages(a)[0]).toMatchObject({ agent: "muse", provider: "gemini", model: "gemini-3.8-flash" });
+  expect(agentMessages(a)[0]).toMatchObject({ agent: "muse", provider: "gemini", model: "gemini-3.5-flash-lite" });
 });
 
 it("routes @Gemini to the Gemini SDK with the server key, shared context, token cap, and labels the response", async () => {

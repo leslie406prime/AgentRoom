@@ -14,7 +14,7 @@ if (process.env.RUN_LIVE_AI_TESTS === "true") {
   console.info("Live provider key presence:", { gemini: Boolean(process.env.GEMINI_API_KEY?.trim()), groq: Boolean(process.env.GROQ_API_KEY?.trim()) });
 }
 import { streamWithRecovery, verifyProvider, providerKey } from "../src/server/ai-providers";
-import { catalog } from "../src/lib/ai-catalog";
+import { catalog, defaultModelKey, parseModelKey } from "../src/lib/ai-catalog";
 const live = process.env.RUN_LIVE_AI_TESTS === "true";
 async function collect(provider: "gemini" | "groq", model: string) {
   let text = "", usage: { input: number; output: number } | undefined;
@@ -25,7 +25,7 @@ describe.skipIf(!live || !process.env.GEMINI_API_KEY)("live Gemini", () => {
   it("lists accessible models and streams a real response with usage", async () => {
     const listing = await verifyProvider("gemini", true); expect(listing.ok).toBe(true);
     console.info("Gemini catalog models accessible:", catalog.filter((m) => m.provider === "gemini").map((m) => `${m.id}=${listing.ok && listing.ids.includes(m.id)}`).join(", "));
-    const model = catalog.find((m) => m.provider === "gemini" && listing.ok && listing.ids.includes(m.id)); expect(model).toBeTruthy();
+    const model = catalog.find((m) => m.provider === "gemini" && m.id === parseModelKey(defaultModelKey)?.id && listing.ok && listing.ids.includes(m.id)); expect(model).toBeTruthy();
     const { text, usage } = await collect("gemini", model!.id); expect(text.trim().length).toBeGreaterThan(0); expect(usage?.input).toBeGreaterThan(0);
   }, 60_000);
 });

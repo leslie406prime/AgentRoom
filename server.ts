@@ -1,5 +1,5 @@
 // Keep this first for direct tsx usage; npm scripts also preload it before imports.
-import "./src/server/environment";
+import { environmentFiles } from "./src/server/environment";
 import { appOrigin,rateLimit } from "./src/server/http-security";
 import { createServer } from "node:http";
 import next from "next";
@@ -42,5 +42,5 @@ void app.prepare().then(() => {
   });
   registerSocketHandlers(io);
   startQueuedWorkers(io);
-  httpServer.listen(port, process.env.AGENTROOM_E2E_SERVER_MANAGED === "true" ? "127.0.0.1" : "0.0.0.0", () => console.info(JSON.stringify({ level: "info", event: "server_listening", port })));
+  httpServer.listen(port, process.env.AGENTROOM_E2E_SERVER_MANAGED === "true" ? "127.0.0.1" : "0.0.0.0", () => console.info(JSON.stringify({ level: "info", event: "server_listening", port, environmentFiles, providersConfigured: { gemini: Boolean(process.env.GEMINI_API_KEY?.trim()), groq: Boolean(process.env.GROQ_API_KEY?.trim()), openai: Boolean(process.env.OPENAI_API_KEY?.trim()) } })));
 });

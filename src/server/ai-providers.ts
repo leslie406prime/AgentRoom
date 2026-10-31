@@ -1,17 +1,17 @@
 import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
 import Groq from "groq-sdk";
-import { PublicJobError } from "./job-errors";
+import { PublicJobError, agentFailureDiagnostic, safeErrorMetadata, safeModel } from "./job-errors";
 import { catalogModel, modelKey, providerInfo, type ProviderId } from "../lib/ai-catalog";
 
 // Server-only. API keys are passed in per call by the caller and never stored on these objects.
-export type StreamParams = { apiKey: string; model: string; system: string; user: string; maxOutputTokens: number; openaiOptions?: { workspaceKey: boolean } };
+export type StreamParams = { apiKey: string; model: string; system: string; user: string; maxOutputTokens: number; jobId?: string; openaiOptions?: { workspaceKey: boolean } };
 export type StreamEvent = { text: string } | { usage: { input: number; output: number } } | { artifactArgs: string };
 export interface AIProvider { id: ProviderId; stream(params: StreamParams): AsyncIterable<StreamEvent>; listModels(apiKey: string): Promise<string[]> }
 
-export type ErrorKind = "auth" | "rate_limit" | "unavailable" | "bad_request" | "blocked" | "unknown";
+export type ErrorKind = "auth" | "rate_limit" | "unavailable" | "bad_request" | "blocked" | "unknown" | "timeout" | "network";
 export class ProviderError extends PublicJobError {
-  constructor(message: string, public kind: ErrorKind, public retryAfterMs?: number) { super(message, kind !== "unknown" && kind !== "blocked"); }
+  constructor(message: string, public kind: ErrorKind, public retryAfterMs?: number, public diagnostics: { httpStatus?: number; errorCode?: string; attempts?: number; partial?: boolean } = {}) { super(message, ["auth", "rate_limit", "bad_request"].includes(kind)); }
 }
 const timeoutMs = 60_000;
 
@@ -30,12 +30,15 @@ function retryAfter(error: unknown): number | undefined {
 // Converts any SDK failure into a user-safe message. Raw SDK messages are never forwarded: they can echo request details.
 export function classifyProviderError(provider: ProviderId, model: string, error: unknown): ProviderError {
   if (error instanceof ProviderError) return error;
-  const label = providerInfo[provider].label, status = statusOf(error), name = (error as { name?: string })?.name ?? "";
-  if (status === 401 || status === 403) return new ProviderError(`${label} rejected the server's API key. An owner should check ${providerInfo[provider].envKey}.`, "auth");
-  if (status === 429) { const wait = retryAfter(error); return new ProviderError(`${label}'s rate or free-tier quota limit was reached${wait ? `. Try again in about ${Math.ceil(wait / 1000)}s` : ". Try again later"}.`, "rate_limit", wait ?? 30_000); }
-  if (status === 404 || status === 400) return new ProviderError(`${label} could not run "${model}" with the configured key. Choose another approved model.`, "bad_request");
-  if ((status !== undefined && status >= 500) || /timeout|abort|ECONN|ENOTFOUND|EAI_AGAIN|fetch failed/i.test(name + String((error as { code?: unknown })?.code ?? "") + String((error as { message?: unknown })?.message ?? ""))) return new ProviderError(`${label} is temporarily unavailable. Please retry.`, "unavailable", 2000);
-  return new ProviderError(`${label} returned an unexpected error. Please retry.`, "unknown");
+  const label = providerInfo[provider].label, meta = safeErrorMetadata(error), status = statusOf(error) ?? meta.httpStatus;
+  const details = { httpStatus: status, errorCode: meta.errorCode };
+  if (status === 401 || status === 403 || meta.errorCode === "API_KEY_INVALID" || meta.errorCode?.startsWith("API_KEY_")) return new ProviderError(`${label} rejected the server's API key or its restrictions. An owner should check ${providerInfo[provider].envKey}.`, "auth", undefined, details);
+  if (status === 429) { const wait = retryAfter(error); return new ProviderError(`${label}'s rate or free-tier quota limit was reached${wait ? `. Try again in about ${Math.ceil(wait / 1000)}s` : ". Try again later"}.`, "rate_limit", wait ?? 30_000, details); }
+  if (status === 404 || status === 400) return new ProviderError(`${label} could not run "${model}" with the configured key. Choose another approved model.`, "bad_request", undefined, details);
+  if (meta.timeout) return new ProviderError(`${label} did not respond before the request timed out. Please retry; an owner can inspect the job's timeout diagnostics.`, "timeout", undefined, details);
+  if (status !== undefined && status >= 500) return new ProviderError(`${label} could not serve "${model}" (temporary provider service error). Retry later or select another approved model.`, "unavailable", 2000, details);
+  if (meta.errorCode || /fetch failed|connection error/i.test(String((error as { message?: unknown })?.message ?? ""))) return new ProviderError(`${label} could not be reached from the server. Please retry; an owner should check the server's network connection.`, "network", 2000, details);
+  return new ProviderError(`${label} returned an unexpected error. Please retry.`, "unknown", undefined, details);
 }
 
 const openaiProvider: AIProvider = {
@@ -60,7 +63,7 @@ const openaiProvider: AIProvider = {
 const geminiProvider: AIProvider = {
   id: "gemini",
   async *stream(p) {
-    const client = new GoogleGenAI({ apiKey: p.apiKey, httpOptions: { timeout: timeoutMs } });
+    const client = new GoogleGenAI({ apiKey: p.apiKey, httpOptions: { timeout: timeoutMs, retryOptions: { attempts: 1 } } });
     // 2.5 models count hidden "thinking" tokens against maxOutputTokens, which can truncate the visible answer; disable it for 2.5.
     const thinking = p.model.startsWith("gemini-2.5") ? { thinkingConfig: { thinkingBudget: 0 } } : {};
     const stream = await client.models.generateContentStream({ model: p.model, contents: [{ role: "user", parts: [{ text: p.user }] }], config: { systemInstruction: p.system, maxOutputTokens: p.maxOutputTokens, ...thinking } });
@@ -139,7 +142,9 @@ export async function* streamWithRecovery(provider: ProviderId, params: StreamPa
     } catch (error) {
       const failure = classifyProviderError(provider, params.model, error);
       if (failure.kind === "rate_limit") setProviderCooldown(provider, failure.retryAfterMs ?? 30_000);
-      const retryable = failure.kind === "unavailable" || (failure.kind === "rate_limit" && (failure.retryAfterMs ?? Infinity) <= 8000);
+      failure.diagnostics = { ...failure.diagnostics, attempts: attempt + 1, partial: started };
+      console.warn(JSON.stringify({ level: "warn", event: "agent_provider_attempt_failed", jobId: params.jobId ?? null, provider, model: safeModel(params.model), ...agentFailureDiagnostic(failure), stage: "provider" }));
+      const retryable = failure.kind === "unavailable" || failure.kind === "network" || (failure.kind === "rate_limit" && (failure.retryAfterMs ?? Infinity) <= 8000);
       if (!started && attempt === 0 && retryable) { await sleep.fn(Math.min(failure.retryAfterMs ?? 1500, 8000)); continue; }
       throw Object.assign(failure, { partial: started });
     }
@@ -158,7 +163,7 @@ export async function verifyProvider(provider: Exclude<ProviderId, "openai">, fo
   const cached = verified.get(provider);
   if (!force && cached && Date.now() - cached.at < 600_000) return cached.result;
   let result: { ok: true; ids: string[] } | { ok: false; message: string };
-  try { result = { ok: true, ids: await providers[provider].listModels(key) }; } catch (error) { result = { ok: false, message: classifyProviderError(provider, "model list", error).message }; }
+  try { result = { ok: true, ids: await providers[provider].listModels(key) }; } catch (error) { const failure = classifyProviderError(provider, "model list", error); console.warn(JSON.stringify({level:"warn",event:"provider_verification_failed",provider,...agentFailureDiagnostic(failure),stage:"model_verification"})); result = { ok: false, message: failure.message }; }
   verified.set(provider, { at: Date.now(), result });
   return result;
 }

@@ -6,7 +6,7 @@ export function rateLimit(key:string,limit=30,window=60000){
  const bucket=buckets.get(key);if(!bucket||bucket.reset<=now){buckets.set(key,{count:1,reset:now+window});return;}
  if(++bucket.count>limit)throw new HttpError(429,"Too many requests. Please wait.");
 }
-export class HttpError extends Error{constructor(public status:number,message:string){super(message);}}
+export class HttpError extends Error{constructor(public status:number,message:string,public code?:import("./job-errors").JobErrorCode){super(message);}}
 export function appOrigin(){return new URL(process.env.AUTH_URL??"http://localhost:"+(process.env.PORT??"3000")).origin;}
 export function assertOrigin(request:Request){if(request.headers.get("origin")!==appOrigin())throw new HttpError(403,"Invalid request origin.");}
 export const ResourceId=z.string().min(12).max(64).regex(/^[A-Za-z0-9_-]+$/);

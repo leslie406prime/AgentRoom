@@ -1,4 +1,4 @@
-import { PublicJobError } from "./job-errors";
+import { PublicJobError, agentFailureDiagnostic, safeModel, safeProvider } from "./job-errors";
 import { failUsage } from "./ai-repository";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -120,7 +120,7 @@ export function ensureWorker(io: Server, roomId: string, execute: (job: Job, io:
         updateJob(roomId, job.id, "completed", undefined, io);
       } catch (error) {
         failUsage(job.id, error instanceof PublicJobError && error.releaseUsage);
-        console.error(JSON.stringify({ level: "error", event: "agent_job_failed", roomId, jobId: job.id, error: "Agent execution failed" }));
+        console.error(JSON.stringify({ level: "error", event: "agent_job_failed", roomId, jobId: job.id, provider: safeProvider(job.provider), model: safeModel(job.model), agent: ["agent", "gemini", "llama", "muse"].includes(job.agent ?? "") ? job.agent : "agent", ...agentFailureDiagnostic(error) }));
         updateJob(roomId, job.id, "failed", error instanceof PublicJobError ? error.message : "The agent couldn't complete this request. Please retry.", io);
         io.to(roomId).emit("agent:done", { jobId: job.id });
       }

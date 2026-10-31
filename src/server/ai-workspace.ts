@@ -4,6 +4,7 @@ import { requireRole, audit } from "./workspace-repository";
 import { HttpError } from "./http-security";
 import { openaiAccess } from "./ai-repository";
 import { providerKey, cachedVerification } from "./ai-providers";
+import type { JobErrorCode } from "./job-errors";
 import { agentInfo, catalog, catalogModel, defaultApprovedModels, defaultModelKey, modelKey, modelLabel, parseModelKey, providerInfo, type AgentId, type ProviderId } from "../lib/ai-catalog";
 
 export type WorkspaceAIConfig = { enabledProviders: Exclude<ProviderId, "openai">[]; approvedModels: string[]; defaultModel: string | null; museModel: string | null; allowPaid: boolean; userHourlyLimit: number; workspaceDailyLimit: number };
@@ -27,35 +28,35 @@ export function loadConfig(workspace: string): WorkspaceAIConfig {
   return { enabledProviders: z.array(FreeProvider).parse(JSON.parse(row.enabled_providers)), approvedModels: z.array(z.string()).parse(JSON.parse(row.approved_models)), defaultModel: row.default_model, museModel: row.muse_model, allowPaid: Boolean(row.allow_paid), userHourlyLimit: row.user_hourly_limit, workspaceDailyLimit: row.workspace_daily_limit };
 }
 
-export type Availability = { available: true } | { available: false; reason: string };
+export type Availability = { available: true } | { available: false; reason: string; code?: JobErrorCode };
 export function modelAvailability(workspace: string, cfg: WorkspaceAIConfig, key: string): Availability {
   const parsed = parseModelKey(key);
   if (!parsed) return { available: false, reason: "Unknown model." };
-  const no = (reason: string): Availability => ({ available: false, reason });
+  const no = (reason: string, code: JobErrorCode = "MODEL_PERMISSION"): Availability => ({ available: false, reason, code });
   if (parsed.provider === "openai") {
     if (!cfg.allowPaid) return no("Paid OpenAI usage has not been authorized by a workspace owner.");
     const access = openaiAccess(workspace);
     if (!access.approved.includes(parsed.id)) return no("Not approved by a workspace owner.");
-    return access.source ? { available: true } : no("No OpenAI credential is configured.");
+    return access.source ? { available: true } : no("No OpenAI credential is configured.", "MISSING_ENVIRONMENT");
   }
   if (!catalogModel(key)) return no("Not a supported free-tier model.");
   const info = providerInfo[parsed.provider];
   if (!cfg.enabledProviders.includes(parsed.provider)) return no(`${info.label} is disabled by a workspace owner.`);
   if (!cfg.approvedModels.includes(key)) return no("Not approved by a workspace owner.");
-  if (!providerKey(parsed.provider)) return no(`Not configured: ${info.envKey} is missing on the server.`);
+  if (!providerKey(parsed.provider)) return no(`Not configured: ${info.envKey} is missing on the server.`, "MISSING_ENVIRONMENT");
   const check = cachedVerification(parsed.provider);
-  if (check && !check.ok) return no(check.message);
+  if (check && !check.ok) return no(check.message, "PROVIDER_VERIFICATION");
   if (check?.ok && !check.ids.includes(parsed.id)) return no("Not accessible with the server's configured key.");
   return { available: true };
 }
 const credentialFor = (workspace: string, provider: ProviderId) => provider === "openai" ? (openaiAccess(workspace).source ?? "environment") : "environment" as const;
-export type Target = { ok: true; agent: AgentId; modelKey: string | null; credential: "environment" | "workspace" | "demo" } | { ok: false; reason: string };
+export type Target = { ok: true; agent: AgentId; modelKey: string | null; credential: "environment" | "workspace" | "demo" } | { ok: false; reason: string; code?: JobErrorCode };
 
 function firstAvailable(workspace: string, cfg: WorkspaceAIConfig, keys: string[]) { return keys.find((key) => modelAvailability(workspace, cfg, key).available); }
 export function agentTarget(workspace: string, cfg: WorkspaceAIConfig, agent: AgentId, requested?: string | null): Target {
   const done = (key: string): Target => ({ ok: true, agent, modelKey: key, credential: credentialFor(workspace, parseModelKey(key)!.provider) });
-  const fail = (reason: string): Target => ({ ok: false, reason });
-  const check = (key: string): Target => { const a = modelAvailability(workspace, cfg, key); return a.available ? done(key) : fail(a.reason); };
+  const fail = (reason: string, code: JobErrorCode = "MODEL_PERMISSION"): Target => ({ ok: false, reason, code });
+  const check = (key: string): Target => { const a = modelAvailability(workspace, cfg, key); return a.available ? done(key) : fail(a.reason, a.code); };
   const approvedFree = cfg.approvedModels;
   if (agent === "muse") {
     if (requested) return fail("Muse's model is chosen by a workspace owner and cannot be overridden.");

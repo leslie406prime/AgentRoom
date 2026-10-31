@@ -28,8 +28,8 @@ export const catalog: CatalogModel[] = [
   { provider: "groq", id: "openai/gpt-oss-20b", label: "GPT-OSS 20B (Groq)", family: "other", tier: "free", localRpm: 20 },
   { provider: "groq", id: "qwen/qwen3.8-27b", label: "Qwen 3.8 27B (Groq, preview)", family: "other", tier: "free", localRpm: 20, note: "Preview model." },
 ];
-export const defaultApprovedModels = ["gemini:gemini-3.8-flash", "gemini:gemini-3.5-flash-lite", "groq:openai/gpt-oss-20b"];
-export const defaultModelKey = "gemini:gemini-3.8-flash";
+export const defaultApprovedModels = ["gemini:gemini-3.5-flash-lite", "gemini:gemini-3.8-flash", "groq:openai/gpt-oss-20b"];
+export const defaultModelKey = "gemini:gemini-3.5-flash-lite";
 
 export const agentInfo: Record<AgentId, { label: string; mention: string; blurb: string }> = {
   muse: { label: "Muse", mention: "@Muse", blurb: "Channel memory, summaries, decisions and action items" },

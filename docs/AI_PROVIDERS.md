@@ -1,5 +1,7 @@
 # Multi-model AI: Gemini, Groq and Muse
 
+Current default: **Gemini 3.5 Flash-Lite**, explicitly approved for unconfigured workspaces and Muse after Gemini 3.8 returned HTTP 503/timeouts. Saved workspace choices are preserved. The real two-browser application test verifies Flash-Lite, Groq, Muse, refresh persistence and queue continuation after the failing 3.8 request. Earlier 3.8 standalone successes below are historical, not a current availability guarantee. See [runtime diagnostics](AI_RUNTIME_DIAGNOSTICS.md).
+
 ## Concepts (kept separate in code)
 - **Provider** – who serves the API: `gemini`, `groq`, `openai` (`src/server/ai-providers.ts`).
 - **Model** – the underlying weights, identified as `provider:modelId` (`src/lib/ai-catalog.ts`).

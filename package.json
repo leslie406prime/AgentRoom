@@ -10,6 +10,7 @@
     "test": "cross-env DATABASE_PATH=./data/agentroom-unit.sqlite vitest run",
     "test:live": "cross-env RUN_LIVE_AI_TESTS=true DATABASE_PATH=:memory: vitest run tests/live-providers.test.ts",
     "test:e2e": "node scripts/test-e2e.cjs",
+    "test:live:app": "node scripts/test-e2e.cjs --live-ai",
     "reset": "tsx scripts/reset-db.ts",
     "migrate": "tsx scripts/migrate.ts",
     "check:secrets": "tsx scripts/check-client-secrets.ts",
