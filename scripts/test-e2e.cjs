@@ -3,7 +3,7 @@ const path=require('node:path');
 const net=require('node:net');
 const {randomBytes}=require('node:crypto');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-const env={...process.env,NEXT_DIST_DIR:'.next-e2e',AUTH_MOCK_OAUTH_ENABLED:'true',AUTH_SECRET:'agentroom-playwright-test-secret',AUTH_URL:'http://localhost:3000',OPENAI_API_KEY:'',OPENAI_MODEL:'gpt-4o-mini',WORKSPACE_CREDENTIAL_KEY:Buffer.alloc(32,7).toString('base64'),DATABASE_PATH:'./data/agentroom-e2e.sqlite',AVATAR_DIRECTORY:'./data/e2e-avatars',PORT:'3000',AGENTROOM_E2E_SERVER_MANAGED:'true',AGENTROOM_TEST_SHUTDOWN_TOKEN:randomBytes(32).toString('hex')};
+const env={...process.env,NEXT_DIST_DIR:'.next-e2e',AUTH_MOCK_OAUTH_ENABLED:'true',AUTH_SECRET:'agentroom-playwright-test-secret',AUTH_URL:'http://localhost:3000',GEMINI_API_KEY:'',GROQ_API_KEY:'',OPENAI_API_KEY:'',OPENAI_MODEL:'gpt-4o-mini',WORKSPACE_CREDENTIAL_KEY:Buffer.alloc(32,7).toString('base64'),DATABASE_PATH:'./data/agentroom-e2e.sqlite',AVATAR_DIRECTORY:'./data/e2e-avatars',PORT:'3000',AGENTROOM_E2E_SERVER_MANAGED:'true',AGENTROOM_TEST_SHUTDOWN_TOKEN:randomBytes(32).toString('hex')};
 let server;
 async function stop(){
  if(!server?.pid)return;

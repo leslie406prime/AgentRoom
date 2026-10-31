@@ -29,7 +29,7 @@ export default function AIProvidersForm({ workspace, config }: { workspace: stri
     if (response.ok) setChecks(data.providers); else setError(data.error ?? "Could not check providers.");
   }
   return <section inert={!ready} className="settings-section"><h2 className="text-lg">AI agents and models</h2>
-    <p className="text-xs leading-6 text-muted">Gemini and Groq keys are stored on the server (<code>GEMINI_API_KEY</code>, <code>GROQ_API_KEY</code>) and are never sent to the browser. Only free-tier models can be approved. AgentRoom never switches to a paid model automatically.</p>
+    <p className="text-xs leading-6 text-muted">Choose approved Gemini and Groq models for your team. Free access depends on your provider account plan; checking available models does not confirm billing eligibility. Review the account plan before approving conditional Llama models. AgentRoom never enables billing or switches to a paid provider automatically.</p>
     <form onSubmit={(event) => void save(event)} className="space-y-5">
       <div className="space-y-2">{config.providers.map((p) => <div key={p.id} className="flex flex-wrap items-center gap-3 rounded-md border border-line bg-panel p-3 text-xs">
         <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={providers.includes(p.id)} onChange={() => toggle(providers, setProviders, p.id)} />{p.label}</label>

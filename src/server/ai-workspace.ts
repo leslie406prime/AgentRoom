@@ -44,7 +44,8 @@ export function modelAvailability(workspace: string, cfg: WorkspaceAIConfig, key
   if (!cfg.approvedModels.includes(key)) return no("Not approved by a workspace owner.");
   if (!providerKey(parsed.provider)) return no(`Not configured: ${info.envKey} is missing on the server.`);
   const check = cachedVerification(parsed.provider);
-  if (check?.ok && check.ids.length && !check.ids.includes(parsed.id)) return no("Not accessible with the server's configured key.");
+  if (check && !check.ok) return no(check.message);
+  if (check?.ok && !check.ids.includes(parsed.id)) return no("Not accessible with the server's configured key.");
   return { available: true };
 }
 const credentialFor = (workspace: string, provider: ProviderId) => provider === "openai" ? (openaiAccess(workspace).source ?? "environment") : "environment" as const;

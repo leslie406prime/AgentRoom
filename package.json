@@ -12,7 +12,8 @@
     "test:e2e": "node scripts/test-e2e.cjs",
     "reset": "tsx scripts/reset-db.ts",
     "migrate": "tsx scripts/migrate.ts",
-    "check:secrets": "tsx scripts/check-client-secrets.ts"
+    "check:secrets": "tsx scripts/check-client-secrets.ts",
+    "check:staged": "tsx scripts/check-staged-security.ts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",

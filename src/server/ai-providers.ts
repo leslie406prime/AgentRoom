@@ -76,7 +76,7 @@ const geminiProvider: AIProvider = {
     if (blocked) throw new ProviderError("Gemini blocked this request with its safety filters. Rephrase and try again.", "blocked");
   },
   async listModels(apiKey) {
-    const client = new GoogleGenAI({ apiKey });
+    const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 15_000 } });
     const ids: string[] = [];
     for await (const model of await client.models.list()) if (!model.supportedActions || model.supportedActions.includes("generateContent")) ids.push((model.name ?? "").replace(/^models\//, ""));
     return ids;
@@ -112,16 +112,20 @@ export function resetProviderGuards() { state.calls.clear(); state.cooldowns.cle
 export function setProviderCooldown(provider: ProviderId, ms: number) { state.cooldowns.set(provider, Date.now() + Math.min(ms, 120_000)); }
 // FIFO queues already serialize one job per channel; this additionally caps provider-wide request rate across channels.
 export async function acquireProviderSlot(provider: ProviderId, model: string) {
-  const label = providerInfo[provider].label, now = Date.now(), cooldown = state.cooldowns.get(provider);
-  if (cooldown && cooldown > now) throw new ProviderError(`${label}'s rate limit was recently reached. Try again in about ${Math.ceil((cooldown - now) / 1000)}s.`, "rate_limit");
+  const label = providerInfo[provider].label, deadline = Date.now() + maxQueueWaitMs;
   const limit = catalogModel(modelKey(provider, model))?.localRpm ?? 20, key = provider + ":" + model;
-  const recent = (state.calls.get(key) ?? []).filter((time) => time > now - 60_000);
-  if (recent.length >= limit) {
+  for (;;) {
+    const now = Date.now(), cooldown = state.cooldowns.get(provider);
+    if (cooldown && cooldown > now) throw new ProviderError(`${label}'s rate limit was recently reached. Try again in about ${Math.ceil((cooldown - now) / 1000)}s.`, "rate_limit", cooldown - now);
+    // Re-read after every await: other channels may have claimed the released slot.
+    const recent = (state.calls.get(key) ?? []).filter((time) => time > now - 60_000);
+    if (recent.length < limit) {
+      recent.push(now); state.calls.set(key, recent); return;
+    }
     const wait = recent[0] + 60_000 - now;
-    if (wait > maxQueueWaitMs) throw new ProviderError(`AgentRoom's local rate guard for ${model} is full. Try again in about ${Math.ceil(wait / 1000)}s.`, "rate_limit");
+    if (now + wait > deadline) throw new ProviderError(`AgentRoom's local rate guard for ${model} is full. Try again in about ${Math.ceil(wait / 1000)}s.`, "rate_limit");
     await sleep.fn(wait);
   }
-  recent.push(Date.now()); state.calls.set(key, recent);
 }
 
 // One retry for transient failures, only if nothing has streamed yet (so a response is never duplicated).
@@ -136,14 +140,18 @@ export async function* streamWithRecovery(provider: ProviderId, params: StreamPa
       const failure = classifyProviderError(provider, params.model, error);
       if (failure.kind === "rate_limit") setProviderCooldown(provider, failure.retryAfterMs ?? 30_000);
       const retryable = failure.kind === "unavailable" || (failure.kind === "rate_limit" && (failure.retryAfterMs ?? Infinity) <= 8000);
-      if (!started && attempt === 0 && retryable) { await sleep.fn(Math.min(failure.retryAfterMs ?? 1500, 8000)); state.cooldowns.delete(provider); continue; }
+      if (!started && attempt === 0 && retryable) { await sleep.fn(Math.min(failure.retryAfterMs ?? 1500, 8000)); continue; }
       throw Object.assign(failure, { partial: started });
     }
   }
 }
 
 // Live check of which catalog models the configured key can reach. Cached 10 minutes.
-const verified = new Map<string, { at: number; result: { ok: true; ids: string[] } | { ok: false; message: string } }>();
+type Verification = { at: number; result: { ok: true; ids: string[] } | { ok: false; message: string } };
+// Next.js API bundles and the custom Socket.IO server load separate module instances.
+// Keep verification shared so an owner's check also governs subsequent socket requests.
+const verificationProcess = process as typeof process & { __agentroomModelVerification?: Map<string, Verification> };
+const verified = verificationProcess.__agentroomModelVerification ??= new Map<string, Verification>();
 export async function verifyProvider(provider: Exclude<ProviderId, "openai">, force = false) {
   const key = providerKey(provider);
   if (!key) return { ok: false as const, message: `${providerInfo[provider].envKey} is not configured.` };

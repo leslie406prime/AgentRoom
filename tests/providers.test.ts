@@ -14,7 +14,7 @@ import { getAISettings, updateAISettings } from "../src/server/ai-repository";
 import { AIConfigInput, getAIConfig, publicAIConfig, updateAIConfig } from "../src/server/ai-workspace";
 import { ensureWorker } from "../src/server/queue";
 import { runAgent } from "../src/server/agent-worker";
-import { clearVerificationCache, resetProviderGuards, sleep, verifyProvider } from "../src/server/ai-providers";
+import { acquireProviderSlot, clearVerificationCache, resetProviderGuards, setProviderCooldown, sleep, streamWithRecovery, verifyProvider } from "../src/server/ai-providers";
 import { ArtifactStreamFilter, extractArtifacts } from "../src/server/muse";
 import { catalog, parseMention } from "../src/lib/ai-catalog";
 
@@ -26,7 +26,7 @@ beforeEach(() => { sleep.fn = async () => {}; resetProviderGuards(); clearVerifi
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); for (const m of [mocks.gemini, mocks.geminiList, mocks.groq, mocks.groqList, mocks.openai]) m.mockReset(); mocks.keys.length = 0; });
 
 function user(name = "User") { const id = randomUUID(); db.prepare('INSERT INTO "user"(id,name,created_at) VALUES (?,?,?)').run(id, name, Date.now()); return id; }
-function fixture() { const actor = user("Alice"), w = createWorkspace(actor, { name: "Providers" }); joinMember(actor, w.id, w.channelId); return { actor, ...w }; }
+function fixture() { const actor = user("Alice"), w = createWorkspace(actor, { name: "Providers" }); joinMember(actor, w.id, w.channelId); updateAIConfig(actor, w.id, config()); return { actor, ...w }; }
 function addMember(a: ReturnType<typeof fixture>, name: string, role: "MEMBER" | "ADMIN" = "MEMBER") { const id = user(name), invite = createInvitation(a.actor, a.id, { role }); acceptInvitation(id, invite.path.split("/").at(-1)!); joinMember(id, a.id, a.channelId); return id; }
 const config = (over: Record<string, unknown> = {}) => ({ enabledProviders: ["gemini", "groq"], approvedModels: ["gemini:gemini-2.5-flash", "gemini:gemini-2.5-flash-lite", "groq:llama-3.3-70b-versatile", "groq:llama-3.1-8b-instant", "groq:openai/gpt-oss-20b"], defaultModel: "gemini:gemini-2.5-flash", museModel: "gemini:gemini-2.5-flash", allowPaid: false, userHourlyLimit: 30, workspaceDailyLimit: 300, ...over });
 const ask = (actor: string, a: ReturnType<typeof fixture>, prompt: string, extra: Record<string, unknown> = {}) => enqueueChannelAgent(actor, a.id, a.channelId, { prompt, idempotencyKey: randomUUID(), ...extra }).result.job;
@@ -40,6 +40,30 @@ function groqReply(texts: string[], usage = { prompt_tokens: 30, completion_toke
   return async () => (async function* () { for (const content of texts) yield { choices: [{ delta: { content } }] }; yield { choices: [], x_groq: { usage } }; })();
 }
 const apiError = (status: number, headers: Record<string, string> = {}) => Object.assign(new Error("raw provider text including " + GEMINI_KEY), { status, headers });
+
+it("defaults new workspaces to Groq GPT-OSS when only Groq is configured, with Llama requiring owner approval", () => {
+  vi.stubEnv("GROQ_API_KEY", GROQ_KEY);
+  const actor = user(), w = createWorkspace(actor, { name: "Safe defaults" });
+  joinMember(actor, w.id, w.channelId);
+  expect(publicAIConfig(actor, w.id).models).toEqual(["groq:openai/gpt-oss-20b"]);
+  expect(() => enqueueChannelAgent(actor, w.id, w.channelId, { prompt: "hi", agent: "llama", idempotencyKey: randomUUID() })).toThrow("No Llama model is approved");
+  const job = enqueueChannelAgent(actor, w.id, w.channelId, { prompt: "hi", agent: "agent", idempotencyKey: randomUUID() }).result.job;
+  expect(job.model).toBe("groq:openai/gpt-oss-20b");
+});
+
+it("runs the new-workspace default Muse on current Gemini without legacy 2.5 thinking options", async () => {
+  vi.stubEnv("GEMINI_API_KEY", GEMINI_KEY);
+  const actor = user(), a = { actor, ...createWorkspace(actor, { name: "Current Gemini defaults" }) };
+  joinMember(actor, a.id, a.channelId);
+  sendChannelMessage(actor, a.id, a.channelId, { clientId: randomUUID(), content: "Decision: keep the white interface." });
+  mocks.gemini.mockImplementation(geminiReply(["The team decided to keep the white interface."]));
+  const job = ask(actor, a, "Summarize our decision."); await finish(a, job);
+  const call = mocks.gemini.mock.calls[0][0];
+  expect(call.model).toBe("gemini-3.8-flash"); expect(call.config.maxOutputTokens).toBe(2048);
+  expect(call.config.thinkingConfig).toBeUndefined();
+  expect(call.contents[0].parts[0].text).toContain("Decision: keep the white interface.");
+  expect(agentMessages(a)[0]).toMatchObject({ agent: "muse", provider: "gemini", model: "gemini-3.8-flash" });
+});
 
 it("routes @Gemini to the Gemini SDK with the server key, shared context, token cap, and labels the response", async () => {
   vi.stubEnv("GEMINI_API_KEY", GEMINI_KEY); const a = fixture();
@@ -197,7 +221,8 @@ it("restricts model and provider configuration to owners and approves only suppo
   expect(AIConfigInput.safeParse(config({ approvedModels: ["openai:gpt-4o"] })).success).toBe(false);
   expect(AIConfigInput.safeParse(config({ museModel: "groq:llama-3.1-8b-instant", approvedModels: ["gemini:gemini-2.5-flash"] })).success).toBe(false);
   expect(AIConfigInput.safeParse(config({ defaultModel: "gemini:gemini-2.5-flash-lite", approvedModels: ["gemini:gemini-2.5-flash"] })).success).toBe(false);
-  expect(catalog.every((m) => m.tier === "free")).toBe(true);
+  expect(catalog.filter((m) => m.family !== "llama").every((m) => m.tier === "free")).toBe(true);
+  expect(catalog.filter((m) => m.family === "llama").every((m) => m.tier === "account-dependent")).toBe(true);
   updateAIConfig(a.actor, a.id, config({ enabledProviders: ["groq"] }));
   expect(() => ask(member, a, "x", { agent: "gemini" })).toThrow("disabled by a workspace owner");
   expect(publicAIConfig(member, a.id).agents.find((x) => x.id === "gemini")).toMatchObject({ available: false, reason: expect.stringContaining("disabled") });
@@ -237,4 +262,60 @@ it("parses @mentions and filters streamed artifact blocks across chunk boundarie
   expect(out).toBe("a  b <b>bold</b>");
   expect(extractArtifacts("hi <artifact title=\"T\" type=\"code\" language=\"ts\">\nlet x\n</artifact>").artifacts).toEqual([{ title: "T", type: "code", language: "ts", content: "let x" }]);
   expect(extractArtifacts("bad <artifact type=\"code\">x</artifact>").artifacts).toEqual([]);
+});
+
+it("rechecks the shared rate window when concurrent channels wake for one available slot", async () => {
+  let now = 0;
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  await acquireProviderSlot("gemini", "gemini-2.5-flash");
+  now = 10_000;
+  for (let i = 0; i < 7; i++) await acquireProviderSlot("gemini", "gemini-2.5-flash");
+  now = 45_000;
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => { release = resolve; });
+  sleep.fn = () => waiting;
+  const first = acquireProviderSlot("gemini", "gemini-2.5-flash");
+  const second = acquireProviderSlot("gemini", "gemini-2.5-flash");
+  now = 60_000; release();
+  const results = await Promise.allSettled([first, second]);
+  expect(results.map((r) => r.status)).toEqual(["fulfilled", "rejected"]);
+  expect((results[1] as PromiseRejectedResult).reason.message).toContain("local rate guard");
+});
+
+it("honors a provider cooldown introduced while a channel is waiting for a slot", async () => {
+  let now = 0;
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  for (let i = 0; i < 8; i++) await acquireProviderSlot("gemini", "gemini-2.5-flash");
+  now = 45_000;
+  sleep.fn = async () => { now = 60_000; setProviderCooldown("gemini", 30_000); };
+  await expect(acquireProviderSlot("gemini", "gemini-2.5-flash")).rejects.toThrow("recently reached");
+});
+
+it("makes models unavailable after an empty model list or failed credential verification", async () => {
+  vi.stubEnv("GROQ_API_KEY", GROQ_KEY); const a = fixture();
+  mocks.groqList.mockResolvedValue({ data: [] });
+  await verifyProvider("groq", true);
+  expect(() => ask(a.actor, a, "blocked", { agent: "llama" })).toThrow("Not accessible");
+  mocks.groqList.mockRejectedValue(apiError(401));
+  await verifyProvider("groq", true);
+  expect(() => ask(a.actor, a, "blocked", { agent: "llama" })).toThrow("GROQ_API_KEY");
+});
+
+it("shares owner verification across separately loaded API and Socket.IO module instances", async () => {
+  vi.stubEnv("GROQ_API_KEY", GROQ_KEY);
+  mocks.groqList.mockResolvedValue({ data: [] });
+  await verifyProvider("groq", true);
+  vi.resetModules();
+  const socketModule = await import("../src/server/ai-providers");
+  expect(socketModule.cachedVerification("groq")).toEqual({ ok: true, ids: [] });
+});
+
+it("does not erase another channel's newer cooldown when retrying a rate-limited call", async () => {
+  let now = 0;
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  mocks.gemini.mockRejectedValue(apiError(429, { "retry-after": "1" }));
+  sleep.fn = async () => { now = 1000; setProviderCooldown("gemini", 60_000); };
+  const consume = async () => { for await (const event of streamWithRecovery("gemini", { apiKey: GEMINI_KEY, model: "gemini-2.5-flash", system: "test", user: "hi", maxOutputTokens: 16 })) void event; };
+  await expect(consume()).rejects.toThrow("recently reached");
+  expect(mocks.gemini).toHaveBeenCalledTimes(1);
 });
