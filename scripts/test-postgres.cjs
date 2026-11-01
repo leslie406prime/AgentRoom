@@ -39,9 +39,9 @@ async function main(){
  try{
   console.info('Starting fresh local PostgreSQL test cluster (no cloud resources).');await postgres.initialise();await postgres.start();await postgres.createDatabase('agentroom_test');
   const env={...process.env,DATABASE_URL:`postgresql://postgres:${password}@127.0.0.1:${port}/agentroom_test`,DATABASE_PATH:':memory:',AGENTROOM_POSTGRES_TEST:'true',GEMINI_API_KEY:'',GROQ_API_KEY:'',OPENAI_API_KEY:'',AUTH_MOCK_OAUTH_ENABLED:'true',NODE_ENV:'test'};
-  const args=process.argv.includes('--production')?['tests/postgres/production-smoke.cjs']:process.argv.includes('--browser')?['scripts/test-e2e.cjs','--mock-ai','tests/e2e/workspace-interactions.spec.ts']:[path.join(path.dirname(require.resolve('vitest/package.json')),'vitest.mjs'),'run','--config','vitest.postgres.config.ts'];
+  const args=process.argv.includes('--startup-diagnostics')?['tests/postgres/startup-failures.cjs']:process.argv.includes('--production')?['tests/postgres/production-smoke.cjs']:process.argv.includes('--browser')?['scripts/test-e2e.cjs','--mock-ai','tests/e2e/workspace-interactions.spec.ts']:[path.join(path.dirname(require.resolve('vitest/package.json')),'vitest.mjs'),'run','--config','vitest.postgres.config.ts'];
   await run(args,env);
-  if(!process.argv.includes('--browser')&&!process.argv.includes('--production')){
+  if(!process.argv.includes('--browser')&&!process.argv.includes('--production')&&!process.argv.includes('--startup-diagnostics')){
    const restartEnv={...env,AGENTROOM_RESTART_FIXTURE:path.join(directory,'restart-fixture.json')};
    const restartArgs=[require.resolve('tsx/cli'),'tests/postgres/restart.ts'];
    await run([...restartArgs,'seed'],restartEnv);
