@@ -6,7 +6,8 @@ async function main(){
  const port=await new Promise((resolve,reject)=>{const s=net.createServer();s.once('error',reject);s.listen(0,'127.0.0.1',()=>{const port=s.address().port;s.close(()=>resolve(port));});});
  const origin='http://127.0.0.1:'+port;
  const env={...process.env,NODE_ENV:'production',NEXT_DIST_DIR:'.next-verify',AUTH_URL:'https://agentroom-m6aa.onrender.com',AUTH_SECRET:'isolated-production-smoke-secret-123456789',AUTH_MOCK_OAUTH_ENABLED:'false',AGENTROOM_BUILD_ONLY:'',AGENTROOM_E2E_SERVER_MANAGED:'',DATABASE_PATH:':memory:',GEMINI_API_KEY:'',GROQ_API_KEY:'',OPENAI_API_KEY:'',PORT:String(port)};
- const child=spawn(process.execPath,['--import','tsx','--import','./src/server/environment.ts','--require','./tests/postgres/production-preload.cjs','server.ts'],{env,stdio:['ignore','inherit','inherit','ipc'],windowsHide:true});
+ const google=process.argv.includes('--google-auth');if(google)Object.assign(env,{AUTH_GOOGLE_ID:'google-fixture-client',AUTH_GOOGLE_SECRET:'fixture-client-secret'});
+ const child=spawn(process.execPath,['--import','tsx','--import','./src/server/environment.ts','--require','./tests/postgres/production-preload.cjs',...(google?['--require','./tests/postgres/google-preload.cjs']:[]),'server.ts'],{env,stdio:['ignore','inherit','inherit','ipc'],windowsHide:true});
  const exited=new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',(code,signal)=>resolve({code,signal}));});
  try{
   let ready=false;const deadline=Date.now()+120000;
@@ -19,6 +20,7 @@ async function main(){
   const response=await fetch(origin+'/sign-in');assert.equal(response.status,200);
   assert(response.headers.get('content-security-policy').includes('wss://agentroom-m6aa.onrender.com'));
   assert.deepEqual(Object.keys(await (await fetch(origin+'/api/auth/providers')).json()),['google']);
+  if(google)await require('./google-http.cjs')(origin,env);
   const socket=io(origin,{transports:['websocket'],reconnection:false,timeout:10000});
   try{await new Promise((resolve,reject)=>{socket.once('connect',()=>reject(new Error('Anonymous socket was accepted')));socket.once('connect_error',error=>{try{assert.match(error.message,/Authentication required/);resolve();}catch(e){reject(e);}});});}finally{socket.disconnect();}
   const rss=await new Promise(resolve=>{child.once('message',message=>resolve(message.rss));child.send('memory');});

@@ -7,6 +7,7 @@ import type { OAuthConfig } from "next-auth/providers";
 import { authAdapter } from "@/server/auth-adapter";
 import { assertMockOAuthEnvironment, mockOAuthEnabled } from "@/server/mock-oauth";
 import { disconnectSessionSockets } from "@/server/session-sockets";
+import { authFailure } from "@/server/auth-diagnostics";
 
 type MockProfile = {
   sub: string;
@@ -70,7 +71,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   providers,
   secret: process.env.AUTH_SECRET,
   trustHost: true,
-  logger: { error(error) { console.error(JSON.stringify({level:"error",event:"auth_error",type:error.name})); }, warn() { console.warn(JSON.stringify({level:"warn",event:"auth_warning"})); }, debug() {} },
+  logger: { error(error) { console.error(JSON.stringify(authFailure(error))); }, warn() { console.warn(JSON.stringify({level:"warn",event:"auth_warning"})); }, debug() {} },
   session: { strategy: "database", maxAge: 30 * 24 * 60 * 60, updateAge: 24 * 60 * 60 },
   useSecureCookies: process.env.NODE_ENV === "production",
   cookies: {

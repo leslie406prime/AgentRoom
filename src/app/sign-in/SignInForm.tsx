@@ -4,6 +4,7 @@ import { signIn } from "next-auth/react";
 import { useEffect, useState } from "react";
 import Brand from "@/components/Brand";
 import Icon from "@/components/Icon";
+import { signInErrorMessage } from "@/lib/sign-in-error";
 
 export default function SignInForm({ callbackUrl, mockEnabled, authError }: { callbackUrl: string; mockEnabled: boolean; authError?: string }) {
   const [ready, setReady] = useState(false);
@@ -36,7 +37,7 @@ export default function SignInForm({ callbackUrl, mockEnabled, authError }: { ca
           <div className="mt-8 grid gap-3">
             <button disabled={!ready} onClick={async () => void (await begin(mockEnabled ? "mock-google" : "google"))} className="btn min-h-12 justify-start px-4 text-sm"><Icon name="google" className="mr-5 h-[18px] w-[18px]" />Continue with Google</button>
           </div>
-          {authError && <p role="alert" className="mt-4 text-xs leading-5 text-danger">Sign in was refused. Please continue with the Google account you used before. A Google identity already used by another account cannot be connected.</p>}
+          {authError && <p role="alert" className="mt-4 text-xs leading-5 text-danger">{signInErrorMessage(authError)}</p>}
           {error && <p role="alert" className="mt-4 text-xs text-danger">{error}</p>}
           <p className="mt-6 flex items-center justify-center gap-2 text-[11px] text-muted"><Icon name="shield" className="h-3.5 w-3.5" />Your account. Your Google sign-in.</p>
           <p className="mt-6 border-t border-line pt-5 text-[11px] leading-5 text-muted">Accounts are never merged by email address.</p>

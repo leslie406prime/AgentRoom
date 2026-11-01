@@ -20,6 +20,7 @@ import {runAgent} from "../../src/server/agent-worker";
 import {loadConfig,updateAIConfig} from "../../src/server/ai-workspace";
 import {resetProviderGuards} from "../../src/server/ai-providers";
 import {jobAI,reserveUsage,updateAISettings} from "../../src/server/ai-repository";
+import {googleOIDCRegressionTests} from "./google-oidc-flow";
 afterEach(()=>{vi.unstubAllEnvs();resetProviderGuards();});
 afterAll(async()=>{await drainWorkers();await db.close()});
 it("initializes an empty versioned schema and preserves data through new connections",async()=>{
@@ -107,3 +108,5 @@ it("stores authenticated avatar bytes in PostgreSQL and rolls back failed nested
  const {createHash}=await import("node:crypto"),{readFile}=await import("node:fs/promises");
  const hash=createHash("sha256").update(await readFile("migrations/postgres/001_initial.sql")).digest("hex");await db.pool!.query("UPDATE postgres_migrations SET checksum=$1 WHERE version=1",[hash]);
 });
+
+googleOIDCRegressionTests();
