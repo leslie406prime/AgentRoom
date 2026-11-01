@@ -1,118 +1,199 @@
 # AgentRoom
 
-**One workspace. Every AI. Your team.**
+**A multiplayer AI workspace for teams, conversations, and shared artifacts.**
 
-AgentRoom is a Google-authenticated team workspace with channels, invitations, shared messages, a FIFO AI queue, and versioned shared Markdown/code artifacts. The white, three-column interface includes a workspace sidebar, shared conversation, and artifact editor with mobile tabs.
+[Live Demo](https://agentroom-m6aa.onrender.com) · [GitHub Repository](https://github.com/leslie406prime/AgentRoom)
 
-## Start
+Built with Next.js, TypeScript, Socket.IO, and PostgreSQL. Development began on **October 26, 2026**, with a public deployment running on Render Free and Neon Free by **November 1, 2026**.
 
-Requires Node.js 20+ and npm. For a new checkout:
+[Overview](#overview) · [Features](#features) · [Screenshots](#screenshots) · [Architecture](#architecture) · [Local development](#local-development) · [Production deployment](#production-deployment) · [Testing](#testing) · [Current limitations](#current-limitations) · [Roadmap](#roadmap)
 
-```powershell
-npm install
-Copy-Item .env.example .env.local
-# Fill in the values below, then:
+## Overview
+
+AgentRoom brings teammates and AI agents into shared channels. Members can discuss a project, request an approved AI model, ask Muse to summarize the conversation, and develop shared Markdown or code artifacts alongside the chat.
+
+Workspaces define the access boundary. Creating a workspace makes you its owner; joining someone else's workspace requires an invitation. REST endpoints and Socket.IO actions check membership and permissions on the server. A channel or room URL alone does not grant access to an established workspace.
+
+Messages, completed AI responses, artifacts, and version history persist in the database. Invited members can read existing channel history after joining; reconnecting clients restore a snapshot and replay persisted events.
+
+## Features
+
+- **Google authentication:** Auth.js with database-backed sessions, production secure cookies, and session checks on socket connections and actions. Accounts are never automatically merged by email.
+- **Workspaces and invitations:** Create and manage workspaces, invite teammates, transfer ownership, and manage membership. Invitations support expiry, use limits, revocation, and optional verified-email restrictions.
+- **Role-based permissions:** Owners manage workspace settings, roles, ownership, and AI policy. Admins manage channels, invite members, remove members within their role limits, and moderate messages. Members can chat, request approved AI agents, and edit artifacts.
+- **Channel management:** Create, rename, archive, and delete non-general channels with server-side role checks. Archived channels are read-only; the general channel is protected.
+- **Real-time collaboration:** Socket.IO delivers shared messages, presence, AI output streams, queue updates, and artifact events through the same server as the web app.
+- **Gemini and Groq integrations:** Official SDK adapters stream responses from workspace-approved models. Agent/model selection is available in the sidebar and composer, with supported mentions such as `@Gemini`, `@Groq`, and `@Muse`.
+- **Muse assistant:** A persona powered by an owner-selected Gemini or Groq model, using bounded recent channel history and artifact excerpts to summarize discussions, extract decisions and action items, compare answers, and create shared Markdown documents. Muse is not a separate foundation model and needs no separate API key.
+- **Shared artifacts:** Markdown and code editing, immutable version history, restore actions, and optimistic version-conflict checks.
+- **Durable persistence:** PostgreSQL for the public deployment, including sessions and uploaded avatar bytes; SQLite remains available for local development.
+- **AI queue and recovery:** One running AI job per channel, durable FIFO ordering, usage reservations, PostgreSQL worker leases, and restart recovery. Expired in-flight production jobs are marked interrupted for manual retry rather than automatically repeating an uncertain provider call.
+- **Workspace AI controls:** Owners approve models, select defaults and Muse's model, and configure request/token limits. Permissions and quotas are checked when jobs are queued and executed. Usage records include provider/model, token counts when available, and estimates otherwise; they are not provider billing reconciliation.
+
+## Screenshots
+
+Product screenshots have not yet been added to the repository. Suggested captures:
+
+| Screenshot to add | What it should show |
+| --- | --- |
+| Workspace and channel view | Channel sidebar, shared conversation, and artifact panel |
+| AI collaboration | Agent selection, a streamed response, and Muse's channel summary |
+| Workspace administration | Invitations, member roles, and model permissions |
+| Artifact history | Version selection and conflict handling |
+
+Use a demonstration workspace and redact private conversations, member details, and credentials before adding images. No fabricated screenshots are included.
+
+## Architecture
+
+| Layer | Implementation |
+| --- | --- |
+| Frontend | Next.js 15 App Router, React 19, TypeScript, Tailwind CSS; Monaco for code artifacts |
+| Backend | One custom Node.js server hosting Next.js, Socket.IO, and AI queue workers |
+| Authentication | Auth.js with Google OAuth and a custom database adapter |
+| Database | SQLite/WAL locally; pooled Neon PostgreSQL with certificate-verified TLS in production |
+| AI | Google Gemini via `@google/genai`; Groq via `groq-sdk` |
+| Deployment | Render Free Node web service + Neon Free PostgreSQL |
+
+```mermaid
+flowchart LR
+    Browser[Next.js / React browser] -->|HTTP + Socket.IO| Server[Render: custom Node.js server]
+    Browser <-->|Google sign-in| Google[Google OAuth]
+    Server -->|Database sessions and application data| DB[(Neon PostgreSQL)]
+    Server -->|Queued model requests| AI[Gemini / Groq]
+```
+
+Server repositories enforce workspace/channel scope and persist sequenced collaboration events. A shared async database layer supports SQLite and PostgreSQL. PostgreSQL startup checks connectivity and applies versioned, checksum-checked migrations before listening; graceful shutdown drains workers and closes clients.
+
+Key implementation entry points: [server.ts](server.ts), [authentication](src/auth.ts), [permissions](src/server/permissions.ts), [workspace repository](src/server/workspace-repository.ts), [collaboration repository](src/server/collaboration-repository.ts), and [AI queue](src/server/queue.ts).
+
+## Local development
+
+### Prerequisites and installation
+
+Use **Node.js 22** (see [.node-version](.node-version)), npm, and Git. SQLite requires the `better-sqlite3` native dependency; systems without a compatible prebuilt binary need their platform's native build tools. PostgreSQL is optional for ordinary local development.
+
+```bash
+git clone https://github.com/leslie406prime/AgentRoom.git
+cd AgentRoom
+npm ci --include=dev
+```
+
+For a **new installation**, copy [.env.example](.env.example) to `.env.local` (`cp .env.example .env.local` on macOS/Linux, or `Copy-Item .env.example .env.local` in PowerShell). Edit an existing file in place instead of overwriting it. Environment variables inherited by the process take precedence over `.env.local`, which takes precedence over `.env`.
+
+### Environment configuration
+
+| Variable | Local configuration |
+| --- | --- |
+| `AUTH_SECRET` | A stable random value of at least 32 characters; generate one for a new installation only |
+| `AUTH_URL` | `http://localhost:3000` |
+| `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | Your Google OAuth web-client values |
+| `GEMINI_API_KEY`, `GROQ_API_KEY` | Server-side AI provider keys; configure the providers you intend to use |
+| `AUTH_MOCK_OAUTH_ENABLED` | `false` for real Google login; `true` only for isolated local mock login |
+| `DATABASE_URL` | Leave empty for local SQLite; set a private PostgreSQL URL to use PostgreSQL |
+| `DATABASE_PATH` | `./data/agentroom.sqlite` by default |
+| `AVATAR_DIRECTORY` | `./data/avatars` for local SQLite uploads |
+| `PORT` | `3000` by default |
+
+For a new installation, generate an auth secret with:
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
+```
+
+Keep credentials server-side and outside Git; never use a `NEXT_PUBLIC_` prefix for secrets. Preserve existing secrets and database files. Optional OpenAI support exists behind explicit owner authorization and model/usage controls; `OPENAI_API_KEY`, `OPENAI_MODEL`, and the optional `WORKSPACE_CREDENTIAL_KEY` are documented in `.env.example`. They are not required for Gemini, Groq, or Muse, and the free deployment does not require enabling paid providers.
+
+### Google OAuth setup
+
+1. Create or select a Google Cloud project and configure its OAuth consent screen.
+2. Create a **Web application** OAuth client. Register `http://localhost:3000/api/auth/callback/google` as an authorized redirect URI and the local origin if required by your client configuration.
+3. Put the client values in `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`. If the OAuth app is in testing mode, add the intended accounts as test users.
+4. Keep `AUTH_MOCK_OAUTH_ENABLED=false` for real sign-in. For credential-free local UI development, mock login can be enabled explicitly outside production; mock identities do not exercise Google.
+
+### Database and startup
+
+```bash
 npm run dev
 ```
 
-If `.env` or `.env.local` already exists, edit it in place. Do not overwrite it, regenerate a valid auth secret, or reset the database. `.env.local` overrides `.env`; inherited environment variables take precedence over both.
+Open [localhost:3000](http://localhost:3000). The server initializes a new local SQLite database and applies its ordered migrations automatically. No database reset or manual SQL bootstrap is needed. Existing SQLite records remain local; a fresh production PostgreSQL database does not require importing them. Never run `npm run reset` against data you want to retain.
 
-Open http://localhost:3000. The custom `server.ts` serves Next.js and Socket.IO on the same port. For production, run `npm run build`, then `npm run start` with `AUTH_URL` set to your public HTTPS origin and mock OAuth disabled.
+After signing in, create a workspace, invite a teammate, and open a channel. Owners can configure **Workspace settings → AI agents and models** to approve models, select defaults and Muse's model, and set limits. Availability depends on configured keys and provider access. Explicitly labeled local demo responses are available when no approved model is available; they are not real AI generation. Provider failures are not silently replaced with fake replies or a different model.
 
-## Environment
+See [Testing](#testing) for local verification commands.
 
-All credentials stay on the server. Never prefix them with `NEXT_PUBLIC_`, commit environment files, or paste keys into chat/artifacts.
+## Production deployment
 
-| Variable | Purpose |
-|---|---|
-| `AUTH_SECRET` | Required, at least 32 random characters. Preserve the existing value. |
-| `AUTH_URL` | Application origin, e.g. `http://localhost:3000`; required in production. |
-| `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | Google OAuth web-client credentials. Register `${AUTH_URL}/api/auth/callback/google` as the redirect URI. |
-| `GEMINI_API_KEY` | Google AI Studio API key; separate from Google OAuth credentials. |
-| `GROQ_API_KEY` | Groq inference API key, not xAI Grok. |
-| `AUTH_MOCK_OAUTH_ENABLED` | Default `false`. Local tests may use `true`; production rejects it. |
-| `PORT` | Default `3000`. |
-| `DATABASE_PATH` | Default `./data/agentroom.sqlite`; application records must be preserved. |
-| `AVATAR_DIRECTORY` | Default `./data/avatars`; keep persistent alongside SQLite. |
-| `OPENAI_API_KEY`, `OPENAI_MODEL` | Optional paid OpenAI credentials/model; disabled for new workspaces until the owner explicitly authorizes paid usage. |
-| `WORKSPACE_CREDENTIAL_KEY` | Optional 32-byte base64 encryption key for workspace-specific OpenAI credentials. Preserve it if already in use. Gemini/Groq do not need it. |
+The public application runs at **[agentroom-m6aa.onrender.com](https://agentroom-m6aa.onrender.com)** on **Render Free + Neon Free**. The deployed server connects to PostgreSQL; it does not rely on Render's ephemeral filesystem for application records or uploaded avatars. Production startup requires `DATABASE_URL` and refuses SQLite fallback.
 
-For a three-person test, Google OAuth must permit all three accounts. If your OAuth app is in testing mode, add your friends as test users. A remote test also needs a reachable HTTPS server, matching OAuth redirect URI, and persistent storage. AgentRoom does not deploy itself or enable provider billing.
+Follow the [Render + Neon release runbook](docs/RENDER_NEON_RELEASE.md) for setup and acceptance checks, [PostgreSQL verification](docs/POSTGRES_READINESS.md) for local persistence evidence, and [startup diagnostics](docs/STARTUP_DIAGNOSTICS.md) for safe troubleshooting. Some runbook gates and older audit documents describe earlier release stages; they are historical checklists, not proof that a current feature is missing.
 
-## Providers and model selection
+| Render setting | Value |
+| --- | --- |
+| Build command | `npm ci --include=dev && npm run build` |
+| Start command | `npm start` |
+| Health check | `/api/health` |
+| Runtime | Node.js 22; one instance |
 
-Gemini uses Google's official `@google/genai` SDK; Groq uses `groq-sdk`. The catalog contains Gemini Flash/Flash-Lite, Groq GPT-OSS and Qwen, and conditional Groq-hosted Meta Llama models. The exact IDs are in `src/lib/ai-catalog.ts`.
+Keep development dependencies installed: `tsx` and `cross-env` are used at runtime. Use the custom server rather than `next start`. Render supplies `PORT`; the server binds on `0.0.0.0`.
 
-1. Configure `GEMINI_API_KEY` and/or `GROQ_API_KEY` in the project-root `.env.local`, then restart the server.
-2. Open Workspace settings as an owner. Under **AI agents and models**, enable providers, approve individual models, choose the default and Muse models, and set request caps.
-3. Use **Check available models** to check configured keys against provider model-list APIs. Listing confirms visibility, not successful inference or the account's billing tier.
-4. In a channel, select an agent/model and ask it a question, or start a message with `@Gemini`, `@Llama`, `@Muse`, or `@Agent`. Select **Room agent** and a Groq GPT-OSS model to use Groq without Llama access. Responses display the actual provider/model.
+Set these **server-side** variables privately in Render:
 
-New workspaces approve Gemini 3.5 Flash-Lite, Gemini 3.8 Flash and Groq GPT-OSS 20B. **Gemini 3.5 Flash-Lite is the default and Muse model for workspaces without saved AI settings**, explicitly approved by the project owner after Gemini 3.8 began returning HTTP 503/timeouts. Saved owner choices remain intact. Gemini 3.8 stays available for explicit selection, but may currently fail upstream. Llama requires owner approval after checking account eligibility. Google also rejects Gemini 2.5 Flash for new users despite listing it; legacy entries remain for existing accounts. Models must be enabled, approved and configured; restrictions are checked at enqueue and execution, not just in the UI. There is no retry on a different provider/model after a failed call. When no approved model is available, Room agent offers clearly labeled local **DEMO MODE**, not real AI.
+| Variable | Value or placeholder |
+| --- | --- |
+| `NODE_ENV` | `production` |
+| `AUTH_URL` | `https://agentroom-m6aa.onrender.com` for this deployment |
+| `AUTH_SECRET` | `<stable-random-secret>` |
+| `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | `<google-client-id>`, `<google-client-secret>` |
+| `DATABASE_URL` | `<private-pooled-neon-postgresql-url>` with TLS |
+| `AUTH_MOCK_OAUTH_ENABLED` | `false` |
+| `GEMINI_API_KEY`, `GROQ_API_KEY` | `<provider-key>` for each enabled provider |
 
-Catalog models may have free-plan access, but account tier controls actual billing. Keep provider accounts on their free tier for this sprint. AgentRoom cannot determine a provider account's billing plan from a key and does not enable billing. Groq currently lists Llama 3.1/3.3 as enterprise access; use them only when your account permits the intended usage. GPT-OSS 20B/120B appear in Groq's free-plan limits. Check current [Google pricing](https://ai.google.dev/gemini-api/docs/pricing), [Groq models](https://console.groq.com/docs/models), and [Groq rate limits](https://console.groq.com/docs/rate-limits).
+Register `https://agentroom-m6aa.onrender.com/api/auth/callback/google` in the matching Google OAuth client. Set `AUTH_URL` consistently at build and runtime because the content security policy includes the application origin. Leave test/build-only flags unset at runtime.
 
-OpenAI requires configured credentials, approved models/prices, and explicit owner authorization. Claude, xAI Grok, and Meta Muse Spark are future integrations.
+The initial deployment uses a fresh, empty PostgreSQL database. Startup applies the schema transactionally and refuses an unrecognized non-empty schema; do not reset an existing database to bypass that check. No historical SQLite migration or upload is required.
 
-## Muse
+Render Free can sleep when idle, restart, and impose resource/usage limits; the first visit can take longer while it wakes. Neon compute can also require a cold start. Neither free hosting nor free AI quotas provide an availability guarantee. Consult the current [Render Free limits](https://render.com/docs/free) and [Neon plans](https://neon.com/docs/introduction/plans) before changing hosting settings.
 
-Muse is AgentRoom's assistant persona, not Meta Muse Spark and not a separate foundation model. It uses the owner's approved Gemini or Groq model without a Muse API key. Gemini is preferred by default.
+## Testing
 
-Muse receives up to 300 recent messages / 30,000 transcript characters from the current channel, timestamps, labeled AI responses, and bounded excerpts from up to five shared artifacts. It can summarize discussions, extract decisions/action items/open questions, compare model answers, explain progress, and create shared Markdown documents when requested. Its instructions prohibit inventing history and disclose missing context. This is bounded recent-history retrieval, not a complete historical search or task-management system; older conversations may be unavailable and summaries still need human review.
+| Command | Coverage |
+| --- | --- |
+| `npm test` | Vitest unit/repository tests with in-memory SQLite: permissions, invitations, authentication boundaries, queues, usage, provider routing, Muse, artifacts, and migrations |
+| `npm run test:postgres` | Fresh isolated local PostgreSQL: schema, async repositories, authorization, sessions, mock AI queue/usage, worker leases, avatar bytes, Google OIDC regressions, restart persistence, and FIFO recovery |
+| `npm run test:e2e` | Playwright browser flows with isolated SQLite, mock OAuth, and external provider keys cleared |
+| `npm run test:ui` | Two-browser channel creation and agent selection using SDK adapters with mocked provider HTTP streams |
+| `npx tsc --noEmit` | TypeScript checks |
+| `npm run lint` | ESLint |
+| `npm run build` | Production Next.js build |
+| `npm run check:secrets` | Production browser-bundle secret scan; run after building |
+| `npm run check:staged` | Staged-file secret/data scan; run after staging changes |
 
-## Permissions and persistence
+Install Chromium with `npx playwright install chromium` before browser tests. The standard browser harness requires port 3000 to be available; stop a conflicting development server yourself before running it. PostgreSQL tests create and stop disposable local clusters, not a Neon production database, and must never be pointed at production credentials.
 
-- Google is the only real OAuth provider. Database-backed sessions persist across reloads; sign-out revokes associated sockets. Microsoft identity records are preserved but Microsoft login is not offered.
-- Owners manage workspace/model settings, roles and ownership. Admins can manage channels and invite members; members can chat, request approved agents, and edit shared artifacts. Invitation links have expiry, use limits, optional email restrictions, and revocation.
-- Authenticated REST and Socket.IO actions enforce workspace membership. Channels currently share workspace membership; private-channel membership is not implemented.
-- Each channel runs one AI job at a time, in FIFO order. Messages, job transitions and artifacts are sequenced in SQLite. Reconnection restores a durable snapshot and replay; transient stream chunks and presence are ephemeral.
-- Shared artifacts have optimistic version checks and immutable version history; this is not simultaneous CRDT editing.
-- Original room IDs retain their legacy mappings and require authenticated claiming/access. Do not delete these mappings.
+Additional [Google OIDC regression fixtures](tests/postgres/google-oidc-flow.ts) exercise first-time signup, returning login, separate Google identities, cross-user linking refusal, explicit linking-intent requirements, and rejection of email-based merging. The [compiled production HTTP fixture](tests/postgres/google-http.cjs), described in the [authentication investigation](docs/GOOGLE_SIGN_IN_INVESTIGATION.md), tests the real application routes with mocked Google discovery, token, and signing-key responses.
 
-SQLite uses WAL and schema v6. Existing migrations take timestamped backups before changing an older database. Before applying any future migration to real data, back up and test it on a copy. Never use `npm run reset` against data you need to preserve. Back up SQLite with a consistent SQLite backup operation, along with uploaded avatars and the credential encryption key.
+**Automated OAuth tests do not use real Google credentials.** Real Google login on the public deployment has been manually verified, as reported by the maintainer; that is separate from automated test coverage. The investigation document records an earlier login failure and the diagnostics added at that time.
 
-## Limits and security
+Opt-in `npm run test:live` and `npm run test:live:app` use configured Gemini/Groq keys and consume provider quota. The latter exercises real AI through the UI in an isolated application process on port 3101; its login is still mocked. These tests are not part of ordinary offline verification. Passing mocks or listing models does not establish live provider availability. See [AI runtime diagnostics](docs/AI_RUNTIME_DIAGNOSTICS.md) for provider troubleshooting.
 
-Prompts: 4,000 characters. Context: 12,000 characters, or 30,000 for Muse. Output: 1,024 tokens, or 2,048 for Muse. Defaults: 30 AI requests/member/hour and 300/workspace/day, plus monthly token reservations and owner-configured quotas. Socket agent requests are capped at six/minute/user; a channel can have at most 20 queued/running jobs.
+## Current limitations
 
-Provider guards coordinate calls across channels in one process, recheck shared slots after waits, and honor cooldowns. Safe errors explain missing keys, inaccessible models, quotas and provider limits. Raw SDK errors and keys are not returned to clients. Failed providers never produce a fake AI reply. Token counts are recorded when supplied; otherwise reservations remain estimates. Gemini/Groq cost records are zero estimates for intended free-plan use, not billing reconciliation.
+- **Single application instance.** Socket delivery, presence, and some rate/provider guards are process-local. PostgreSQL leases do not make the application ready for horizontal scaling.
+- **Workspace-wide channels.** Private-channel membership and permissions are not implemented.
+- **Artifact concurrency.** Editing uses optimistic version checks and conflict handling, not simultaneous CRDT/OT collaboration.
+- **Bounded Muse context.** Muse reads recent channel history and selected artifact excerpts, not the entire historical archive. It can make errors and does not create durable task-management records or provide full-text history search.
+- **Limited identity recovery.** Google connect/disconnect controls exist, require explicit linking intent, and protect the final identity. There is no self-service cross-provider recovery or automatic account merging; Google is the only real sign-in provider.
+- **Incomplete moderation workflow.** Owner/admin message deletion exists; abuse reporting and a moderation review workflow do not.
+- **Transient live state.** Presence and active stream chunks are ephemeral. Persisted messages, artifacts, jobs, and replay events survive restarts; interrupted external calls cannot be guaranteed exactly once.
+- **Free-tier constraints.** Render cold starts and resource limits, Neon compute/storage quotas, and AI provider quotas/model eligibility affect availability. Usage estimates are not a billing ledger, and local test results do not establish production load capacity.
 
-## Validation
+## Roadmap
 
-In a channel, owners and admins can use **+** beside **Channels** to create and open a channel. Names are normalized to lowercase with spaces replaced by hyphens; duplicates are rejected within the workspace. Members can join existing channels but cannot create them.
+Planned improvements, not implemented commitments:
 
-The single **AI agents** sidebar selects the same target as the composer dropdown. Muse is the channel-memory assistant; Gemini targets approved Google models; Groq targets approved models hosted by the Groq inference service; Llama targets approved Meta Llama models hosted by Groq; Room agent uses the workspace default. The provider/model and unavailable reason are shown beside each entry. Selection is remembered per user/workspace on this browser. Leading `@Muse`, `@Gemini`, `@Groq`, `@Llama` or `@Agent` selects one target; multiple recognized mentions are rejected with a request to choose one. To compare answers, select Muse and name the other models without multiple @mentions.
-
-Historical failed jobs are retained in the collapsed **Failed requests** section of the activity panel. Expand it to see the failure category and safe details or retry manually. A retry is a new request subject to current permissions and limits. There are no unlimited automatic retries.
-
-```powershell
-npm test
-npx tsc --noEmit
-npm run lint
-npm run build
-npm run check:secrets
-npm run test:e2e
-npm run test:ui
-npm run test:live
-npm run test:live:app
-npm run check:staged
-```
-
-`npm test` mocks providers for routing, Muse context/artifacts, usage, allowlists, workspace isolation, FIFO, failure recovery, authentication and data migrations. `npm run test:e2e` runs Chromium against an isolated database and mock Google login, with all provider keys explicitly cleared. Install the browser with `npx playwright install chromium` if required; stop any server on port 3000 first.
-
-`npm run test:ui` tests sidebar channel creation and agent selection with two browsers, actual SDK adapters and mocked provider HTTP streams. Its opt-in Node preload requires a fresh isolated test database and mock OAuth; it is never imported by the application. Provider calls do not reach the internet, and this test is not live-generation evidence.
-
-Only the explicitly opted-in live test commands load local provider keys and send real requests. `npm run test:live` loads `.env.local` despite Vitest's test mode. Gemini probes the current default with one tiny response; Groq verifies Muse against a stored channel fact through the real queue in an in-memory workspace, including streaming, persistence and usage. Missing keys cause skips. Passing mocks or model listing alone does not establish live generation. Live tests do not validate real Google OAuth. `check:secrets` scans the production browser bundle; `check:staged` scans staged paths and content before a commit without printing secret values.
-
-`npm run test:live:app` is the opt-in full application check: it uses real Gemini/Groq keys, mock login only in a separate development process on **port 3101**, a new isolated SQLite database, and two Chromium contexts. It submits AI requests from the UI through authenticated Socket.IO, checks shared replies, reload persistence, actual usage and queue continuation after an upstream failure. It never changes your real workspaces or enables OpenAI. This consumes a small amount of provider quota. Ordinary unit/browser tests still clear provider keys. See [runtime diagnostics](docs/AI_RUNTIME_DIAGNOSTICS.md) for the confirmed Gemini 3.8 incident and safe log fields.
-
-## MVP limitations
-
-For deployment settings, follow the [Render Free + Neon Free release runbook](docs/RENDER_NEON_RELEASE.md) and [passing PostgreSQL verification](docs/POSTGRES_READINESS.md). The older [deployment assessment](docs/RENDER_FREE_DEPLOYMENT_PLAN.md) is historical planning evidence. Production requires `DATABASE_URL` and stores uploaded avatars in PostgreSQL; local development retains SQLite. The deployment uses a fresh, empty Neon Free database. Existing local records stay on this computer; no SQLite importer or data transfer is needed. Linux/hosted acceptance gates still apply.
-
-- One Node process and one SQLite file; provider/request guards and presence are process-local. Do not deploy multiple replicas with this architecture.
-- Free quotas and model availability vary by account and can change. Successful generation must be checked with the actual configured key.
-- Real Google OAuth, public HTTPS deployment and OAuth test-user access require environment-specific verification.
-- Muse has bounded channel memory and can make model errors. It does not create durable tasks or search all historical messages by date.
-- No private-channel permissions, moderation/reporting workflow, full-text history search, or CRDT editing.
-- Automated browser tests use mock Google and demo AI; they do not prove external provider availability.
+- Broaden supported AI providers and model configuration.
+- Improve Muse's retrieval, context visibility, and task-oriented assistance.
+- Add collaborative artifact editing beyond optimistic conflict resolution.
+- Develop abuse reporting and moderation review tools.
+- Improve deployment observability and operational diagnostics.
+- Introduce shared real-time infrastructure and distributed coordination for scalability.
