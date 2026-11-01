@@ -32,16 +32,24 @@ Messages, completed AI responses, artifacts, and version history persist in the 
 
 ## Screenshots
 
-Product screenshots have not yet been added to the repository. Suggested captures:
 
-| Screenshot to add | What it should show |
-| --- | --- |
-| Workspace and channel view | Channel sidebar, shared conversation, and artifact panel |
-| AI collaboration | Agent selection, a streamed response, and Muse's channel summary |
-| Workspace administration | Invitations, member roles, and model permissions |
-| Artifact history | Version selection and conflict handling |
+### Collaborative Workspace
 
-Use a demonstration workspace and redact private conversations, member details, and credentials before adding images. No fabricated screenshots are included.
+![AgentRoom Workspace](docs/screenshots/workspace.png)
+
+### AI Collaboration
+
+![Gemini, Groq and Muse](docs/screenshots/ai-collaboration.png)
+
+### Workspace Management
+
+![Workspace Settings](docs/screenshots/workspace-settings.png)
+
+### Shared Artifacts
+
+![Artifact History](docs/screenshots/artifacts.png)
+
+
 
 ## Architecture
 
