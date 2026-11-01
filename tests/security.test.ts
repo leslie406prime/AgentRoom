@@ -1,4 +1,4 @@
-﻿import { afterEach,expect,it,vi } from "vitest";
+import { afterEach,expect,it,vi } from "vitest";
 import { z } from "zod";
 import { assertOrigin,readInput,resourceId,rateLimit } from "../src/server/http-security";
 afterEach(()=>vi.unstubAllEnvs());

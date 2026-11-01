@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useState } from "react";
 import { useHydrated } from "@/lib/use-hydrated";
 import { can,type Role } from "@/server/permissions";
@@ -10,7 +10,7 @@ function ChannelRow({workspace,channel}:{workspace:string;channel:Channel}){
   if(r.ok)window.location.reload();else setError((await r.json()).error);
  }
  if(channel.isGeneral)return <p className="status-note">#general is permanent.</p>;
- return <div className="space-y-2"><form onSubmit={e=>{e.preventDefault();void change("PATCH",{name});}} className="flex flex-wrap items-end gap-3"><input aria-label={"Name for "+channel.name} className="bg-panel border border-line p-2" value={name} onChange={e=>setName(e.target.value)} maxLength={64}/><button className="btn">Rename</button><button className="btn" type="button" onClick={()=>void change("PATCH",{archived:!channel.archived})}>{channel.archived?"Unarchive":"Archive"}</button><button className="btn" type="button" onClick={()=>{if(window.confirm("Delete #"+channel.name+" and its history?"))void change("DELETE");}}>Delete channel</button></form>{error&&<p role="alert" className="text-xs text-danger">{error}</p>}</div>;
+ return <div className="space-y-2"><form onSubmit={async e=>{e.preventDefault();void (await change("PATCH",{name}));}} className="flex flex-wrap items-end gap-3"><input aria-label={"Name for "+channel.name} className="bg-panel border border-line p-2" value={name} onChange={e=>setName(e.target.value)} maxLength={64}/><button className="btn">Rename</button><button className="btn" type="button" onClick={async ()=>void (await change("PATCH",{archived:!channel.archived}))}>{channel.archived?"Unarchive":"Archive"}</button><button className="btn" type="button" onClick={async ()=>{if(window.confirm("Delete #"+channel.name+" and its history?"))void (await change("DELETE"));}}>Delete channel</button></form>{error&&<p role="alert" className="text-xs text-danger">{error}</p>}</div>;
 }
 export default function ChannelManager({workspace,role,channels}:{workspace:string;role:Role;channels:Channel[]}){
  const ready=useHydrated(),[name,setName]=useState(""),[error,setError]=useState("");

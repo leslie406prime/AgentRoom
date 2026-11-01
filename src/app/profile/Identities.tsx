@@ -18,9 +18,9 @@ export default function Identities({ identities, mock }: { identities: { provide
   }
   return <section inert={!ready} className="settings-section">
     <div><h2>Connected identities</h2><p className="mt-2 text-xs leading-5 text-muted">Manage the accounts you use to sign in to AgentRoom.</p></div>
-    <div className="divide-y divide-line rounded-md border border-line">{identities.map(i => <div key={i.provider+i.providerAccountId} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"><span className="text-sm font-medium">{i.provider === "google" ? "Google" : i.provider}</span><button className="btn text-muted" onClick={() => void unlink(i.provider,i.providerAccountId)}>Disconnect</button></div>)}</div>
+    <div className="divide-y divide-line rounded-md border border-line">{identities.map(i => <div key={i.provider+i.providerAccountId} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"><span className="text-sm font-medium">{i.provider === "google" ? "Google" : i.provider}</span><button className="btn text-muted" onClick={async () => void (await unlink(i.provider,i.providerAccountId))}>Disconnect</button></div>)}</div>
     {mock && <label className="settings-label max-w-md">Mock identity<input className="field" value={hint} onChange={e => setHint(e.target.value)}/></label>}
-    <div className="flex flex-wrap gap-3">{[mock ? "mock-google" : "google"].map(p => <button className="btn" key={p} onClick={() => void connect(p)}>Connect {mock ? p : "Google"}</button>)}</div>
+    <div className="flex flex-wrap gap-3">{[mock ? "mock-google" : "google"].map(p => <button className="btn" key={p} onClick={async () => void (await connect(p))}>Connect {mock ? p : "Google"}</button>)}</div>
     {error && <p role="alert" className="text-xs text-danger">{error}</p>}
   </section>;
 }

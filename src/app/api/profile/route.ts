@@ -4,13 +4,13 @@ import { apiError, assertOrigin, HttpError, readInput } from "@/server/http-secu
 export async function GET() {
   const session=await auth();
   if(!session?.user?.id) return Response.json({error:"Authentication required."},{status:401});
-  touchUser(session.user.id);
-  return Response.json(ownProfile(session.user.id));
+  (await touchUser(session.user.id));
+  return Response.json((await ownProfile(session.user.id)));
 }
 export async function PATCH(request: Request) {
   try {
     assertOrigin(request); const session=await auth();
     if(!session?.user?.id) throw new HttpError(401,"Authentication required.");
-    return Response.json(updateProfile(session.user.id,await readInput(request,ProfileInput)));
+    return Response.json((await updateProfile(session.user.id,await readInput(request,ProfileInput))));
   } catch(error) { return apiError(error); }
 }

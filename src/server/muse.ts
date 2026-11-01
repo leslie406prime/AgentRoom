@@ -13,9 +13,9 @@ function speaker(row: Row) {
   if (row.kind === "agent") return `${row.authorName}${row.provider && row.model ? ` [AI response, ${modelLabel(row.provider + ":" + row.model)}]` : " [AI response]"}`;
   return row.kind === "request" ? `${row.authorName} [asked an AI agent]` : row.authorName;
 }
-export function channelTranscript(job: AgentJob, options: ContextOptions) {
-  const room = workerChannel(job.room_id);
-  const rows = db.prepare("SELECT author_name AS authorName,kind,content,created_at AS createdAt,seq,ai_agent AS agent,ai_provider AS provider,ai_model AS model FROM messages WHERE room_id=? AND (job_id IS NULL OR job_id<>?) ORDER BY seq DESC LIMIT ?").all(job.room_id, job.id, options.maxMessages + 1) as Row[];
+export async function channelTranscript(job: AgentJob, options: ContextOptions) {
+  const room = (await workerChannel(job.room_id));
+  const rows = (await db.prepare("SELECT author_name AS authorName,kind,content,created_at AS createdAt,seq,ai_agent AS agent,ai_provider AS provider,ai_model AS model FROM messages WHERE room_id=? AND (job_id IS NULL OR job_id<>?) ORDER BY seq DESC LIMIT ?").all(job.room_id, job.id, options.maxMessages + 1)) as Row[];
   const omittedByCount = rows.length > options.maxMessages ? 1 : 0;
   const kept: string[] = [];
   let used = 0, omitted = omittedByCount;
@@ -27,8 +27,8 @@ export function channelTranscript(job: AgentJob, options: ContextOptions) {
   }
   return { room, transcript: kept.join("\n"), omitted: omitted > 0 };
 }
-export function channelArtifacts(roomId: string) {
-  return db.prepare("SELECT title,version,content FROM artifacts WHERE room_id=? ORDER BY updated_at DESC LIMIT 5").all(roomId) as { title: string; version: number; content: string }[];
+export async function channelArtifacts(roomId: string) {
+  return (await db.prepare("SELECT title,version,content FROM artifacts WHERE room_id=? ORDER BY updated_at DESC LIMIT 5").all(roomId)) as { title: string; version: number; content: string }[];
 }
 
 const artifactRules = `To create or update a shared artifact, output it exactly once in this form (the server saves it and removes it from your chat reply):

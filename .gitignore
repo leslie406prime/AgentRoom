@@ -27,7 +27,11 @@ uploads/
 # Dependencies and generated build/test output
 node_modules/
 .next/
+.next-cache-backup-*/
 .next-e2e/
+.next-live-e2e/
+.next-ui-e2e/
+.next-verify/
 .npm-cache/
 .vscode/
 .turbo/

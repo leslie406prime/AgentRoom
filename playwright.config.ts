@@ -18,6 +18,8 @@ export default defineConfig({
       AUTH_SECRET: "agentroom-playwright-test-secret",
       AUTH_URL: "http://localhost:3000",
       OPENAI_API_KEY: "",
+      GEMINI_API_KEY: "",
+      GROQ_API_KEY: "",
       OPENAI_MODEL: "gpt-4o-mini",
       WORKSPACE_CREDENTIAL_KEY: Buffer.alloc(32,7).toString("base64"),
       AVATAR_DIRECTORY: "./data/e2e-avatars",
