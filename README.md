@@ -43,7 +43,7 @@ Messages, completed AI responses, artifacts, and version history persist in the 
 
 ### Workspace Management
 
-![Workspace Settings](docs/screenshots/workspace-settings.png)
+![Workspace Settings](docs/screenshots/workspace.png)
 
 ### Shared Artifacts
 
